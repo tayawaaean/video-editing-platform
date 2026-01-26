@@ -1,35 +1,347 @@
-'use client';
-
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+"use client";
+import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
+import { StatusBadge, EmptyState, VideoIcon, TableSkeleton } from '@/components';
 import { useAuth } from '@/contexts/AuthContext';
-import { PageLoading } from '@/components';
+import type { Submission, SubmissionStatus } from '@/types';
 
 export default function DashboardPage() {
-  const { user, loading } = useAuth();
-  const router = useRouter();
+  const { user } = useAuth();
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<SubmissionStatus | ''>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
-  const getRoleDashboardPath = (role: string) => {
-    switch (role) {
-      case 'admin':
-        return '/admin/dashboard';
-      case 'reviewer':
-        return '/reviewer/dashboard';
-      case 'submitter':
-        return '/submitter/dashboard';
-      default:
-        return '/login';
+  const fetchSubmissions = useCallback(async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (statusFilter) {
+        params.set('status', statusFilter);
+      }
+      
+      const response = await fetch(`/api/submissions?${params.toString()}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch submissions');
+      }
+
+      setSubmissions(data.data);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [statusFilter]);
 
   useEffect(() => {
-    if (!loading && user) {
-      const rolePath = getRoleDashboardPath(user.role);
-      router.replace(rolePath);
-    } else if (!loading && !user) {
-      router.replace('/login');
-    }
-  }, [user, loading, router]);
+    fetchSubmissions();
+  }, [fetchSubmissions]);
 
-  return <PageLoading />;
+  // Filter submissions by search query
+  const filteredSubmissions = submissions.filter((submission) =>
+    submission.title.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Pagination logic
+  const totalPages = Math.ceil(filteredSubmissions.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedSubmissions = filteredSubmissions.slice(startIndex, endIndex);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, searchQuery]);
+
+  const statusOptions: { value: SubmissionStatus | ''; label: string }[] = [
+    { value: '', label: 'All Status' },
+    { value: 'pending', label: 'Pending' },
+    { value: 'reviewing', label: 'In Review' },
+    { value: 'completed', label: 'Completed' },
+  ];
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="mt-1 text-sm text-gray-600">
+            {user?.role === 'submitter'
+              ? 'View and manage your video submissions'
+              : 'Review and provide feedback on video submissions'}
+          </p>
+        </div>
+        <Link
+          href="/submissions/new"
+          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+        >
+          <svg className="-ml-1 mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          New Submission
+        </Link>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex-1">
+            <label htmlFor="search" className="sr-only">
+              Search submissions
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <input
+                type="text"
+                id="search"
+                placeholder="Search by title..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md text-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+          </div>
+          <div className="sm:w-48">
+            <label htmlFor="status" className="sr-only">
+              Filter by status
+            </label>
+            <select
+              id="status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as SubmissionStatus | '')}
+              className="block w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            >
+              {statusOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Error state */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-6">
+          {error}
+        </div>
+      )}
+
+      {/* Loading state */}
+      {loading && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <TableSkeleton rows={5} />
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!loading && !error && filteredSubmissions.length === 0 && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+          <EmptyState
+            title="No submissions found"
+            description={
+              searchQuery || statusFilter
+                ? 'Try adjusting your filters'
+                : user?.role === 'submitter'
+                ? 'Create your first submission to get started'
+                : 'No submissions to review yet'
+            }
+            icon={<VideoIcon />}
+            action={
+              !searchQuery && !statusFilter ? (
+                <Link
+                  href="/submissions/new"
+                  className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+                >
+                  Create Submission
+                </Link>
+              ) : undefined
+            }
+          />
+        </div>
+      )}
+
+      {/* Submissions table/cards */}
+      {!loading && !error && filteredSubmissions.length > 0 && (
+        <>
+          {/* Desktop table view */}
+          <div className="hidden md:block bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Title
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Created
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Updated
+                    </th>
+                    <th className="relative px-6 py-3">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {paginatedSubmissions.map((submission) => (
+                    <tr key={submission.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-900">
+                            {submission.title}
+                          </span>
+                          {submission.description && (
+                            <span className="text-sm text-gray-500 truncate max-w-xs">
+                              {submission.description}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <StatusBadge status={submission.status} size="sm" />
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(submission.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(submission.updated_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <Link
+                          href={`/submissions/${submission.id}`}
+                          className="text-blue-600 hover:text-blue-900 transition-colors"
+                        >
+                          View
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Mobile card view */}
+          <div className="md:hidden space-y-4">
+            {paginatedSubmissions.map((submission) => (
+              <Link
+                key={submission.id}
+                href={`/submissions/${submission.id}`}
+                className="block bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow"
+              >
+                <div className="space-y-3">
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-900 mb-1">
+                      {submission.title}
+                    </h3>
+                    {submission.description && (
+                      <p className="text-sm text-gray-500 line-clamp-2">
+                        {submission.description}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <StatusBadge status={submission.status} size="sm" />
+                    <span className="text-xs text-gray-400">
+                      {new Date(submission.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-100">
+                    <span>Updated: {new Date(submission.updated_at).toLocaleDateString()}</span>
+                    <span className="text-blue-600 font-medium">View →</span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="mt-6 flex items-center justify-between bg-white px-4 py-3 rounded-lg border border-gray-200">
+              <div className="flex-1 flex justify-between sm:hidden">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="relative inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="relative ml-3 inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+              <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm text-gray-700">
+                    Showing <span className="font-medium">{startIndex + 1}</span> to{' '}
+                    <span className="font-medium">{Math.min(endIndex, filteredSubmissions.length)}</span> of{' '}
+                    <span className="font-medium">{filteredSubmissions.length}</span> results
+                  </p>
+                </div>
+                <div>
+                  <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                      className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="sr-only">Previous</span>
+                      <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
+                          page === currentPage
+                            ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
+                            : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                      className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="sr-only">Next</span>
+                      <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </nav>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }

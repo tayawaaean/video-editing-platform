@@ -71,6 +71,13 @@ export async function middleware(request: NextRequest) {
       url.pathname = getRoleDashboardPath(user.role);
       return NextResponse.redirect(url);
     }
+
+    // Restrict /submissions/new to submitters only
+    if (path === '/submissions/new' && user.role !== 'submitter') {
+      const url = request.nextUrl.clone();
+      url.pathname = getRoleDashboardPath(user.role);
+      return NextResponse.redirect(url);
+    }
   }
 
   // If on login page and already authenticated, redirect to role-based dashboard
