@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { getUserBySupabaseUid, updateUserRole } from '@/lib/airtable';
+import { getAuthUser } from '@/lib/auth-helper';
+import { updateUserRole } from '@/lib/airtable';
 import { updateUserRoleSchema } from '@/lib/validations';
+import { DEV_MODE, DEV_USERS } from '@/lib/dev-mode';
+import type { User } from '@/types';
+
+// In-memory store for dev mode
+let devUsers = [...DEV_USERS];
 
 // PATCH /api/admin/users/[id] - Update user role (admin only)
 export async function PATCH(
@@ -10,20 +15,14 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { user } = await getAuthUser();
 
-    if (authError || !user) {
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const airtableUser = await getUserBySupabaseUid(user.id);
-    if (!airtableUser) {
-      return NextResponse.json({ error: 'User not provisioned' }, { status: 403 });
-    }
-
     // Only admins can update user roles
-    if (airtableUser.role !== 'admin') {
+    if (user.role !== 'admin') {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
@@ -39,6 +38,15 @@ export async function PATCH(
     }
 
     const { role } = validationResult.data;
+
+    if (DEV_MODE) {
+      const index = devUsers.findIndex(u => u.id === id);
+      if (index === -1) {
+        return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      }
+      devUsers[index] = { ...devUsers[index], role };
+      return NextResponse.json({ data: devUsers[index] });
+    }
 
     // Update user role (id here is the Airtable record ID)
     const updatedUser = await updateUserRole(id, role);

@@ -1,26 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { getUserBySupabaseUid, getAllUsers, updateUserRole, createUser } from '@/lib/airtable';
+import { getAuthUser } from '@/lib/auth-helper';
+import { getAllUsers, createUser, getUserBySupabaseUid } from '@/lib/airtable';
 import { updateUserRoleSchema, createUserSchema } from '@/lib/validations';
+import { DEV_MODE, DEV_USERS } from '@/lib/dev-mode';
+import type { User } from '@/types';
+
+// In-memory store for dev mode
+let devUsers = [...DEV_USERS];
 
 // GET /api/admin/users - List all users (admin only)
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { user } = await getAuthUser();
 
-    if (authError || !user) {
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const airtableUser = await getUserBySupabaseUid(user.id);
-    if (!airtableUser) {
-      return NextResponse.json({ error: 'User not provisioned' }, { status: 403 });
+    // Only admins can access this endpoint
+    if (user.role !== 'admin') {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
-    // Only admins can access this endpoint
-    if (airtableUser.role !== 'admin') {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    if (DEV_MODE) {
+      return NextResponse.json({ data: devUsers });
     }
 
     const users = await getAllUsers();
@@ -35,20 +38,14 @@ export async function GET() {
 // POST /api/admin/users - Create a new user (admin only)
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { user } = await getAuthUser();
 
-    if (authError || !user) {
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const airtableUser = await getUserBySupabaseUid(user.id);
-    if (!airtableUser) {
-      return NextResponse.json({ error: 'User not provisioned' }, { status: 403 });
-    }
-
     // Only admins can create users
-    if (airtableUser.role !== 'admin') {
+    if (user.role !== 'admin') {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
@@ -66,6 +63,25 @@ export async function POST(request: NextRequest) {
     const { supabase_uid, email, role } = validationResult.data;
 
     // Check if user already exists
+    if (DEV_MODE) {
+      const existingUser = devUsers.find(u => u.supabase_uid === supabase_uid);
+      if (existingUser) {
+        return NextResponse.json(
+          { error: 'User with this Supabase UID already exists' },
+          { status: 409 }
+        );
+      }
+      const newUser: User = {
+        id: `user-${Date.now()}`,
+        supabase_uid,
+        email,
+        role,
+        created_at: new Date().toISOString().split('T')[0],
+      };
+      devUsers.push(newUser);
+      return NextResponse.json({ data: newUser }, { status: 201 });
+    }
+
     const existingUser = await getUserBySupabaseUid(supabase_uid);
     if (existingUser) {
       return NextResponse.json(

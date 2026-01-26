@@ -1,7 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { getUserBySupabaseUid, getSubmissionById, updateSubmissionStatus } from '@/lib/airtable';
+import { getAuthUser } from '@/lib/auth-helper';
+import { getSubmissionById, updateSubmissionStatus } from '@/lib/airtable';
 import { updateSubmissionStatusSchema } from '@/lib/validations';
+import { DEV_MODE, DEV_SUBMISSIONS } from '@/lib/dev-mode';
+import type { Submission } from '@/types';
+
+// In-memory store for dev mode
+let devSubmissions = [...DEV_SUBMISSIONS];
+
+function getDevSubmission(id: string): Submission | null {
+  return devSubmissions.find(s => s.id === id) || null;
+}
+
+function updateDevSubmission(id: string, status: Submission['status']): Submission | null {
+  const index = devSubmissions.findIndex(s => s.id === id);
+  if (index === -1) return null;
+  devSubmissions[index] = { 
+    ...devSubmissions[index], 
+    status, 
+    updated_at: new Date().toISOString().split('T')[0] 
+  };
+  return devSubmissions[index];
+}
 
 // GET /api/submissions/[id] - Get a single submission
 export async function GET(
@@ -10,25 +30,19 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { user, supabaseUid } = await getAuthUser();
 
-    if (authError || !user) {
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const airtableUser = await getUserBySupabaseUid(user.id);
-    if (!airtableUser) {
-      return NextResponse.json({ error: 'User not provisioned' }, { status: 403 });
-    }
-
-    const submission = await getSubmissionById(id);
+    const submission = DEV_MODE ? getDevSubmission(id) : await getSubmissionById(id);
     if (!submission) {
       return NextResponse.json({ error: 'Submission not found' }, { status: 404 });
     }
 
     // Submitters can only view their own submissions
-    if (airtableUser.role === 'submitter' && submission.submitter_uid !== user.id) {
+    if (user.role === 'submitter' && submission.submitter_uid !== supabaseUid) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
@@ -46,24 +60,18 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { user } = await getAuthUser();
 
-    if (authError || !user) {
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const airtableUser = await getUserBySupabaseUid(user.id);
-    if (!airtableUser) {
-      return NextResponse.json({ error: 'User not provisioned' }, { status: 403 });
-    }
-
     // Only reviewers and admins can update status
-    if (airtableUser.role === 'submitter') {
+    if (user.role === 'submitter') {
       return NextResponse.json({ error: 'Only reviewers can update status' }, { status: 403 });
     }
 
-    const submission = await getSubmissionById(id);
+    const submission = DEV_MODE ? getDevSubmission(id) : await getSubmissionById(id);
     if (!submission) {
       return NextResponse.json({ error: 'Submission not found' }, { status: 404 });
     }
@@ -82,7 +90,9 @@ export async function PATCH(
     const { status } = validationResult.data;
 
     // Update submission status
-    const updatedSubmission = await updateSubmissionStatus(id, status);
+    const updatedSubmission = DEV_MODE 
+      ? updateDevSubmission(id, status) 
+      : await updateSubmissionStatus(id, status);
 
     return NextResponse.json({ data: updatedSubmission });
   } catch (error) {
