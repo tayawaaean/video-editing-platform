@@ -30,7 +30,7 @@ export default function AdminUsersPage() {
 
       if (!response.ok) {
         if (response.status === 403) {
-          router.push('/dashboard');
+          router.push('/admin/dashboard');
           return;
         }
         throw new Error(data.error || 'Failed to fetch users');
@@ -47,7 +47,12 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     if (user?.role !== 'admin') {
-      router.push('/dashboard');
+      if (user) {
+        const rolePath = user.role === 'reviewer' ? '/reviewer/dashboard' : user.role === 'submitter' ? '/submitter/dashboard' : '/dashboard';
+        router.push(rolePath);
+      } else {
+        router.push('/login');
+      }
       return;
     }
     fetchUsers();

@@ -18,6 +18,20 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
   const [comments, setComments] = useState<Comment[]>([]);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const getRoleDashboardPath = () => {
+    if (!user) return '/dashboard';
+    switch (user.role) {
+      case 'admin':
+        return '/admin/dashboard';
+      case 'reviewer':
+        return '/reviewer/dashboard';
+      case 'submitter':
+        return '/submitter/dashboard';
+      default:
+        return '/dashboard';
+    }
+  };
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'comments' | 'annotations'>('comments');
   
@@ -231,7 +245,7 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
       {/* Header */}
       <div className="mb-6">
         <Link
-          href="/dashboard"
+          href={getRoleDashboardPath()}
           className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 transition-colors mb-4"
         >
           <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -21,12 +21,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const supabase = createClient();
+  const isDevMode = process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
   const fetchUser = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
+      // In dev mode, skip Supabase check and go straight to API
+      // The API endpoint handles dev mode authentication via cookies
+      if (isDevMode) {
+        const response = await fetch('/api/me');
+        const data = await response.json();
+
+        if (!response.ok) {
+          if (response.status === 403) {
+            setError(data.error || 'User not provisioned');
+          } else {
+            setError(data.error || 'Failed to fetch user');
+          }
+          setUser(null);
+          return;
+        }
+
+        setUser(data.data);
+        return;
+      }
+
+      // Production mode: check Supabase first
       const { data: { user: supabaseUser } } = await supabase.auth.getUser();
       
       if (!supabaseUser) {
@@ -56,10 +78,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [supabase.auth]);
+  }, [supabase.auth, isDevMode]);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    if (isDevMode) {
+      // In dev mode, clear the dev cookie
+      await fetch('/api/auth/dev-logout', { method: 'POST' });
+    } else {
+      await supabase.auth.signOut();
+    }
     setUser(null);
     router.push('/login');
     router.refresh();
@@ -68,18 +95,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     fetchUser();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_IN') {
-        fetchUser();
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-      }
-    });
+    // Only listen to Supabase auth changes in production mode
+    if (!isDevMode) {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+        if (event === 'SIGNED_IN') {
+          fetchUser();
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+        }
+      });
 
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [fetchUser, supabase.auth]);
+      return () => {
+        subscription.unsubscribe();
+      };
+    }
+  }, [fetchUser, supabase.auth, isDevMode]);
 
   return (
     <AuthContext.Provider value={{ user, loading, error, signOut, refreshUser: fetchUser }}>

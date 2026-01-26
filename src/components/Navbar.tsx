@@ -1,86 +1,34 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { RoleBadge } from './RoleBadge';
+import { Sidebar } from './Sidebar';
 
 export function Navbar() {
-  const { user, signOut } = useAuth();
-  const pathname = usePathname();
+  const { user } = useAuth();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const isActive = (path: string) => pathname === path;
-
-  const linkClass = (path: string) =>
-    `px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-      isActive(path)
-        ? 'bg-blue-100 text-blue-700'
-        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-    }`;
+  if (!user) return null;
 
   return (
-    <nav className="bg-white border-b border-gray-200">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          <div className="flex items-center">
-            <Link href="/dashboard" className="font-semibold text-lg text-gray-900">
-              {process.env.NEXT_PUBLIC_APP_NAME || 'Video Review'}
-            </Link>
-            
-            <div className="hidden sm:ml-8 sm:flex sm:space-x-2">
-              <Link href="/dashboard" className={linkClass('/dashboard')}>
-                Dashboard
-              </Link>
-              <Link href="/submissions/new" className={linkClass('/submissions/new')}>
-                New Submission
-              </Link>
-              {user?.role === 'admin' && (
-                <Link href="/admin/users" className={linkClass('/admin/users')}>
-                  Users
-                </Link>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-4">
-            {user && (
-              <>
-                <div className="hidden sm:flex items-center space-x-3">
-                  <span className="text-sm text-gray-600">{user.email}</span>
-                  <RoleBadge role={user.role} />
-                </div>
-                <button
-                  onClick={signOut}
-                  className="px-3 py-2 rounded-md text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
-                >
-                  Sign out
-                </button>
-              </>
-            )}
+    <>
+      <nav className="bg-white border-b border-gray-200 fixed top-0 left-0 right-0 h-16 z-40 lg:hidden">
+        <div className="h-full px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center h-full">
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="p-2 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              aria-label="Toggle menu"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
           </div>
         </div>
-      </div>
+      </nav>
 
-      {/* Mobile nav */}
-      <div className="sm:hidden border-t border-gray-200 px-4 py-3 space-y-2">
-        <Link href="/dashboard" className={`block ${linkClass('/dashboard')}`}>
-          Dashboard
-        </Link>
-        <Link href="/submissions/new" className={`block ${linkClass('/submissions/new')}`}>
-          New Submission
-        </Link>
-        {user?.role === 'admin' && (
-          <Link href="/admin/users" className={`block ${linkClass('/admin/users')}`}>
-            Users
-          </Link>
-        )}
-        {user && (
-          <div className="pt-2 border-t border-gray-200 flex items-center justify-between">
-            <span className="text-sm text-gray-600">{user.email}</span>
-            <RoleBadge role={user.role} />
-          </div>
-        )}
-      </div>
-    </nav>
+      <Sidebar isMobileOpen={isMobileMenuOpen} onMobileClose={() => setIsMobileMenuOpen(false)} />
+    </>
   );
 }

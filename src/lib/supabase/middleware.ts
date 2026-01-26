@@ -49,7 +49,7 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // If logged in and on login page, redirect to dashboard
+  // If logged in and on login page, redirect to /dashboard (main middleware will handle role-based redirect)
   if (user && isLoginPage) {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';

@@ -3,16 +3,32 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useAuth } from '@/contexts/AuthContext';
 import { parseGoogleDriveUrl } from '@/lib/google-drive';
 
 export default function NewSubmissionPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [googleDriveUrl, setGoogleDriveUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [urlError, setUrlError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const getRoleDashboardPath = () => {
+    if (!user) return '/dashboard';
+    switch (user.role) {
+      case 'admin':
+        return '/admin/dashboard';
+      case 'reviewer':
+        return '/reviewer/dashboard';
+      case 'submitter':
+        return '/submitter/dashboard';
+      default:
+        return '/dashboard';
+    }
+  };
 
   // Validate URL on blur
   const handleUrlBlur = () => {
@@ -72,7 +88,7 @@ export default function NewSubmissionPage() {
     <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
         <Link
-          href="/dashboard"
+          href={getRoleDashboardPath()}
           className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 transition-colors"
         >
           <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -162,7 +178,7 @@ export default function NewSubmissionPage() {
 
           <div className="flex items-center justify-end gap-4 pt-4">
             <Link
-              href="/dashboard"
+              href={getRoleDashboardPath()}
               className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
             >
               Cancel

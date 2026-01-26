@@ -1,9 +1,13 @@
 // Development mode utilities
-// When NEXT_ENV=development, bypass real auth and use mock users
+// When NEXT_PUBLIC_DEV_MODE=true or NEXT_ENV=development, bypass real auth and use mock users
 
 import type { User, Submission, Comment, Annotation } from '@/types';
 
-export const DEV_MODE = process.env.NEXT_ENV === 'development';
+// Check for explicit dev mode flag first, then fall back to environment checks
+export const DEV_MODE = 
+  process.env.NEXT_PUBLIC_DEV_MODE === 'true' ||
+  process.env.NEXT_ENV === 'development' ||
+  process.env.NODE_ENV === 'development';
 export const DEV_PASSWORD = '123password';
 
 // Mock users for development

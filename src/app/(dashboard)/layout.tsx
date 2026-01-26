@@ -1,12 +1,15 @@
 'use client';
 
 import { AuthProvider } from '@/contexts/AuthContext';
+import { SidebarProvider } from '@/contexts/SidebarContext';
 import { Navbar } from '@/components';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSidebar } from '@/contexts/SidebarContext';
 import { PageLoading } from '@/components';
 
 function LayoutContent({ children }: { children: React.ReactNode }) {
   const { loading, error, user } = useAuth();
+  const { isCollapsed } = useSidebar();
 
   if (loading) {
     return (
@@ -44,7 +47,9 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
-      <main>{children}</main>
+      <main className={`pt-16 lg:pt-0 transition-all duration-300 ${isCollapsed ? 'lg:pl-16' : 'lg:pl-64'}`}>
+        <div className="p-4 sm:p-6 lg:p-8">{children}</div>
+      </main>
     </div>
   );
 }
@@ -56,7 +61,9 @@ export default function DashboardLayout({
 }) {
   return (
     <AuthProvider>
-      <LayoutContent>{children}</LayoutContent>
+      <SidebarProvider>
+        <LayoutContent>{children}</LayoutContent>
+      </SidebarProvider>
     </AuthProvider>
   );
 }
