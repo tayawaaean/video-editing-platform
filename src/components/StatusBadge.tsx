@@ -8,26 +8,27 @@ interface StatusBadgeProps {
 const statusConfig: Record<SubmissionStatus, { label: string; className: string }> = {
   pending: {
     label: 'Pending',
-    className: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+    className: 'bg-amber-50 text-amber-700 ring-amber-600/20',
   },
   reviewing: {
     label: 'In Review',
-    className: 'bg-blue-100 text-blue-800 border-blue-200',
+    className: 'bg-purple-50 text-purple-700 ring-purple-600/20',
   },
   completed: {
     label: 'Completed',
-    className: 'bg-green-100 text-green-800 border-green-200',
+    className: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
   },
 };
 
 export function StatusBadge({ status, size = 'md' }: StatusBadgeProps) {
   const config = statusConfig[status];
-  const sizeClasses = size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-1 text-sm';
+  const sizeClasses = size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm';
 
   return (
     <span
-      className={`inline-flex items-center font-medium rounded-full border ${config.className} ${sizeClasses}`}
+      className={`inline-flex items-center gap-1.5 font-medium rounded-full ring-1 ring-inset ${config.className} ${sizeClasses}`}
     >
+      <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
       {config.label}
     </span>
   );

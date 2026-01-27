@@ -5,3 +5,4 @@ export { EmptyState, VideoIcon } from './EmptyState';
 export { Navbar } from './Navbar';
 export { Sidebar } from './Sidebar';
 export { VideoPlayer } from './VideoPlayer';
+export { StatCard } from './StatCard';

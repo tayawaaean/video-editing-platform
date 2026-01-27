@@ -85,113 +85,248 @@ export default function NewSubmissionPage() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="max-w-4xl mx-auto">
+      {/* Header Section */}
       <div className="mb-8">
         <Link
           href={getRoleDashboardPath()}
-          className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 transition-colors"
+          className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors group mb-6"
         >
-          <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="h-4 w-4 group-hover:-translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
           Back to Dashboard
         </Link>
+        
+        <div className="flex items-center gap-4 mb-3">
+          <div className="p-3 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl shadow-lg shadow-blue-500/30">
+            <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-4xl font-bold tracking-tight text-slate-900">Create New Submission</h1>
+            <p className="mt-2 text-lg text-slate-600">Upload your video for review and feedback</p>
+          </div>
+        </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">New Submission</h1>
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-6">
-            {error}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-5 py-4 rounded-xl mb-6 shadow-sm animate-fade-in">
+          <div className="flex items-center gap-3">
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="font-medium">{error}</span>
           </div>
-        )}
+        </div>
+      )}
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label htmlFor="title" className="block text-sm font-medium text-gray-700">
-              Title <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              id="title"
-              required
-              maxLength={200}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
-              placeholder="Enter a title for your video"
-            />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Main Form */}
+        <div className="lg:col-span-2">
+          <div className="bg-white rounded-2xl shadow-md border border-slate-200/60 p-8 hover:shadow-lg transition-transform duration-300">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div>
+                <label htmlFor="title" className="block text-sm font-semibold text-slate-900 mb-2">
+                  Video Title <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  id="title"
+                  required
+                  maxLength={200}
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="block w-full px-4 py-3 border border-slate-300 rounded-xl shadow-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm transition-shadow"
+                  placeholder="e.g., Product Demo Q1 2026"
+                />
+                <p className="mt-2 text-xs text-slate-500">{title.length}/200 characters</p>
+              </div>
+
+              <div>
+                <label htmlFor="description" className="block text-sm font-semibold text-slate-900 mb-2">
+                  Description
+                </label>
+                <textarea
+                  id="description"
+                  rows={5}
+                  maxLength={5000}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="block w-full px-4 py-3 border border-slate-300 rounded-xl shadow-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm resize-none transition-shadow"
+                  placeholder="Provide context about this video, what needs to be reviewed, or any specific feedback you're looking for..."
+                />
+                <p className="mt-2 text-xs text-slate-500">{description.length}/5000 characters</p>
+              </div>
+
+              <div>
+                <label htmlFor="googleDriveUrl" className="block text-sm font-semibold text-slate-900 mb-2">
+                  Google Drive Video URL <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <svg className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                    </svg>
+                  </div>
+                  <input
+                    type="url"
+                    id="googleDriveUrl"
+                    required
+                    value={googleDriveUrl}
+                    onChange={(e) => {
+                      setGoogleDriveUrl(e.target.value);
+                      setUrlError(null);
+                    }}
+                    onBlur={handleUrlBlur}
+                    className={`block w-full pl-12 pr-4 py-3 border rounded-xl shadow-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm transition-shadow ${
+                      urlError ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : 'border-slate-300'
+                    }`}
+                    placeholder="https://drive.google.com/file/d/.../view"
+                  />
+                </div>
+                {urlError && (
+                  <div className="mt-2 flex items-center gap-2 text-sm text-red-600">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    {urlError}
+                  </div>
+                )}
+                <p className="mt-2 text-xs text-slate-500">
+                  Paste a Google Drive sharing link. Make sure the video is set to &quot;Anyone with the link can view&quot;.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-4 pt-6 border-t border-slate-200">
+                <Link
+                  href={getRoleDashboardPath()}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:text-slate-900 transition-colors"
+                >
+                  Cancel
+                </Link>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold shadow-lg shadow-blue-500/30 hover:shadow-xl hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                >
+                  {loading ? (
+                    <>
+                      <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Create Submission
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
+        </div>
 
-          <div>
-            <label htmlFor="description" className="block text-sm font-medium text-gray-700">
-              Description
-            </label>
-            <textarea
-              id="description"
-              rows={4}
-              maxLength={5000}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm resize-none"
-              placeholder="Add any context or notes about this video"
-            />
-            <p className="mt-1 text-xs text-gray-500">{description.length}/5000 characters</p>
-          </div>
-
-          <div>
-            <label htmlFor="googleDriveUrl" className="block text-sm font-medium text-gray-700">
-              Google Drive Video URL <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="url"
-              id="googleDriveUrl"
-              required
-              value={googleDriveUrl}
-              onChange={(e) => {
-                setGoogleDriveUrl(e.target.value);
-                setUrlError(null);
-              }}
-              onBlur={handleUrlBlur}
-              className={`mt-1 block w-full px-3 py-2 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm ${
-                urlError ? 'border-red-300' : 'border-gray-300'
-              }`}
-              placeholder="https://drive.google.com/file/d/.../view"
-            />
-            {urlError && (
-              <p className="mt-1 text-sm text-red-600">{urlError}</p>
-            )}
-            <p className="mt-1 text-xs text-gray-500">
-              Paste a Google Drive sharing link. Make sure the video is set to &quot;Anyone with the link can view&quot;.
-            </p>
-          </div>
-
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-            <h3 className="text-sm font-medium text-blue-800 mb-2">Supported URL formats:</h3>
-            <ul className="text-xs text-blue-700 space-y-1">
-              <li>• https://drive.google.com/file/d/FILE_ID/view</li>
-              <li>• https://drive.google.com/open?id=FILE_ID</li>
-              <li>• https://drive.google.com/uc?id=FILE_ID</li>
+        {/* Sidebar with Guidelines */}
+        <div className="lg:col-span-1 space-y-6">
+          {/* URL Format Guide */}
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 shadow-md hover:shadow-lg transition-transform duration-300 hover:-translate-y-0.5 ring-1 ring-inset ring-white/60">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="h-9 w-9 rounded-full bg-gradient-to-br from-blue-500/10 to-indigo-500/10 ring-1 ring-inset ring-blue-300/40 flex items-center justify-center">
+                <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-blue-900">Supported URL Formats</h3>
+                <p className="text-xs text-blue-700 mt-1">We accept these Google Drive URL patterns:</p>
+              </div>
+            </div>
+            <ul className="space-y-2 text-xs text-blue-800">
+              <li className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                <code className="font-mono bg-white/80 border border-white/70 px-2.5 py-1 rounded-md text-[11px] shadow-sm flex-1">drive.google.com/file/d/FILE_ID/view</code>
+              </li>
+              <li className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                <code className="font-mono bg-white/80 border border-white/70 px-2.5 py-1 rounded-md text-[11px] shadow-sm flex-1">drive.google.com/open?id=FILE_ID</code>
+              </li>
+              <li className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                <code className="font-mono bg-white/80 border border-white/70 px-2.5 py-1 rounded-md text-[11px] shadow-sm flex-1">drive.google.com/uc?id=FILE_ID</code>
+              </li>
             </ul>
           </div>
 
-          <div className="flex items-center justify-end gap-4 pt-4">
-            <Link
-              href={getRoleDashboardPath()}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
-            >
-              Cancel
-            </Link>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? 'Creating...' : 'Create Submission'}
-            </button>
+          {/* Quick Tips */}
+          <div className="bg-white rounded-2xl p-6 border border-slate-200/60 shadow-md hover:shadow-lg transition-transform duration-300 hover:-translate-y-0.5">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="h-9 w-9 rounded-full bg-emerald-500/10 ring-1 ring-inset ring-emerald-300/40 flex items-center justify-center">
+                <svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Quick Tips</h3>
+              </div>
+            </div>
+            <ul className="space-y-3 text-sm text-slate-600">
+              <li className="flex items-start gap-3">
+                <div className="w-6 h-6 flex items-center justify-center bg-slate-100 rounded-full ring-1 ring-inset ring-slate-200 text-slate-700 font-semibold flex-shrink-0 mt-0.5">
+                  <span className="text-xs">1</span>
+                </div>
+                <span>Choose a clear, descriptive title</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <div className="w-6 h-6 flex items-center justify-center bg-slate-100 rounded-full ring-1 ring-inset ring-slate-200 text-slate-700 font-semibold flex-shrink-0 mt-0.5">
+                  <span className="text-xs">2</span>
+                </div>
+                <span>Include context in the description</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <div className="w-6 h-6 flex items-center justify-center bg-slate-100 rounded-full ring-1 ring-inset ring-slate-200 text-slate-700 font-semibold flex-shrink-0 mt-0.5">
+                  <span className="text-xs">3</span>
+                </div>
+                <span>Ensure video sharing is enabled</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <div className="w-6 h-6 flex items-center justify-center bg-slate-100 rounded-full ring-1 ring-inset ring-slate-200 text-slate-700 font-semibold flex-shrink-0 mt-0.5">
+                  <span className="text-xs">4</span>
+                </div>
+                <span>Double-check the URL before submitting</span>
+              </li>
+            </ul>
           </div>
-        </form>
+
+          {/* Status Info */}
+          <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl p-6 shadow-md hover:shadow-lg transition-transform duration-300 hover:-translate-y-0.5 ring-1 ring-inset ring-white/60">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="h-9 w-9 rounded-full bg-purple-500/10 ring-1 ring-inset ring-purple-300/40 flex items-center justify-center">
+                <svg className="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-purple-900">What Happens Next?</h3>
+              </div>
+            </div>
+            <p className="text-xs text-purple-700 leading-relaxed">
+              Once submitted, your video will be queued for review. You&apos;ll receive feedback through comments and annotations. You can track the status from your dashboard.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

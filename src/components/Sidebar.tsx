@@ -123,14 +123,14 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
 
   const sidebarContent = (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className={`flex items-center border-b border-gray-200 flex-shrink-0 ${isCollapsed ? 'justify-center py-4 px-2' : 'justify-between p-4 gap-2'}`}>
+      <div className={`flex items-center border-b border-slate-200 flex-shrink-0 bg-gradient-to-r from-slate-50 to-white ${isCollapsed ? 'justify-center py-4 px-2' : 'justify-between p-4 gap-2'}`}>
         {isCollapsed ? (
           <Link
             href={roleDashboardPath}
-            className="flex-shrink-0 p-1.5 rounded-md hover:bg-gray-100 transition-colors"
+            className="flex-shrink-0 p-2 rounded-xl hover:bg-slate-100 transition-colors"
             title={process.env.NEXT_PUBLIC_APP_NAME || 'Video Review Platform'}
           >
-            <svg className="w-6 h-6 text-gray-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
           </Link>
@@ -138,7 +138,7 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
           <>
             <Link
               href={roleDashboardPath}
-              className="font-semibold text-base text-gray-900 flex-1 min-w-0"
+              className="font-bold text-lg bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent flex-1 min-w-0 hover:from-blue-700 hover:to-indigo-700 transition-all"
             >
               {process.env.NEXT_PUBLIC_APP_NAME || 'Video Review Platform'}
             </Link>
@@ -146,7 +146,7 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
         )}
         <button
           onClick={onMobileClose}
-          className="lg:hidden flex-shrink-0 p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          className="lg:hidden flex-shrink-0 p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
           aria-label="Close sidebar"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -163,18 +163,18 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
               key={item.href}
               href={item.href}
               onClick={onMobileClose}
-              className={`flex items-center rounded-md text-sm font-medium transition-colors ${
+              className={`group flex items-center rounded-xl text-sm font-medium transition-all duration-200 ${
                 isCollapsed
-                  ? 'justify-center p-2.5 w-full'
-                  : 'gap-3 px-3 py-2.5'
+                  ? 'justify-center p-3 w-full'
+                  : 'gap-3 px-4 py-3'
               } ${
                 active
-                  ? 'bg-blue-50 text-blue-700'
-                  : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+                  ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/30'
+                  : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
               }`}
               title={isCollapsed ? item.label : undefined}
             >
-              <span className={`flex-shrink-0 ${active ? 'text-blue-600' : 'text-gray-400'}`}>
+              <span className={`flex-shrink-0 ${active ? 'text-white' : 'text-slate-400 group-hover:text-slate-600'} transition-colors`}>
                 {item.icon}
               </span>
               {!isCollapsed && <span className="truncate">{item.label}</span>}
@@ -183,26 +183,26 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
         })}
       </nav>
 
-      <div className={`border-t border-gray-200 space-y-3 flex-shrink-0 ${isCollapsed ? 'py-4 px-2' : 'p-4'}`}>
+      <div className={`border-t border-slate-200 space-y-3 flex-shrink-0 ${isCollapsed ? 'py-4 px-2' : 'p-4'}`}>
         {!isCollapsed && (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl">
             <div className="flex-shrink-0">
-              <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
-                <span className="text-xs font-medium text-gray-600">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
+                <span className="text-sm font-semibold text-white">
                   {user.email.charAt(0).toUpperCase()}
                 </span>
               </div>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">{user.email}</p>
+              <p className="text-sm font-semibold text-slate-900 truncate">{user.email}</p>
               <RoleBadge role={user.role} />
             </div>
           </div>
         )}
         {isCollapsed && (
           <div className="flex justify-center w-full">
-            <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
-              <span className="text-xs font-medium text-gray-600">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
+              <span className="text-sm font-semibold text-white">
                 {user.email.charAt(0).toUpperCase()}
               </span>
             </div>
@@ -210,12 +210,12 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
         )}
         <button
           onClick={signOut}
-          className={`w-full flex items-center justify-center rounded-md text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors ${
-            isCollapsed ? 'p-2.5' : 'gap-3 px-3 py-2.5'
+          className={`group w-full flex items-center justify-center rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 shadow-md hover:shadow-lg transition-all duration-200 ${
+            isCollapsed ? 'p-3' : 'gap-2 px-4 py-3'
           }`}
           title={isCollapsed ? 'Sign out' : undefined}
         >
-          <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="w-5 h-5 flex-shrink-0 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
           </svg>
           {!isCollapsed && <span>Sign out</span>}
@@ -227,7 +227,7 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
   return (
     <>
       <aside
-        className={`hidden lg:flex flex-col bg-white border-r border-gray-200 fixed left-0 top-0 bottom-0 z-30 transition-all duration-300 ${
+        className={`hidden lg:flex flex-col bg-white border-r border-slate-200 fixed left-0 top-0 bottom-0 z-30 transition-all duration-300 shadow-sm ${
           isCollapsed ? 'w-16' : 'w-64'
         }`}
       >
@@ -236,7 +236,7 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
         {/* Toggle button positioned outside the sidebar */}
         <button
           onClick={toggleCollapse}
-          className="absolute -right-3 top-4 p-1 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors border border-gray-300 bg-white shadow-sm z-40"
+          className="absolute -right-3 top-6 p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors border border-slate-300 bg-white shadow-md z-40 hover:shadow-lg"
           aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           <svg
@@ -257,10 +257,10 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
       {isMobileOpen && (
         <>
           <div
-            className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden transition-opacity"
             onClick={onMobileClose}
           />
-          <aside className="fixed left-0 top-0 bottom-0 w-64 bg-white border-r border-gray-200 z-50 lg:hidden shadow-xl">
+          <aside className="fixed left-0 top-0 bottom-0 w-64 bg-white border-r border-slate-200 z-50 lg:hidden shadow-2xl">
             {sidebarContent}
           </aside>
         </>
