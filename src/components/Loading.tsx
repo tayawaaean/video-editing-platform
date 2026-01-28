@@ -7,7 +7,7 @@ export function LoadingSpinner({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
 
   return (
     <svg
-      className={`animate-spin text-blue-600 ${sizeClasses[size]}`}
+      className={`animate-spin text-[#061E26] ${sizeClasses[size]}`}
       fill="none"
       viewBox="0 0 24 24"
     >
@@ -30,7 +30,7 @@ export function LoadingSpinner({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
 
 export function LoadingSkeleton({ className = '' }: { className?: string }) {
   return (
-    <div className={`animate-pulse bg-gray-200 rounded ${className}`} />
+    <div className={`animate-pulse bg-black/10 rounded ${className}`} />
   );
 }
 

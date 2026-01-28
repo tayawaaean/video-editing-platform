@@ -1,25 +1,57 @@
-import { NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/auth-helper';
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const { user, error } = await getAuthUser();
+    // Create Supabase client the same way middleware does
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            // Can't set cookies in API routes, but that's OK
+          },
+        },
+      }
+    );
 
-    if (!user) {
-      const status = error === 'User not provisioned' ? 403 : 401;
+    // Get user directly (same as middleware)
+    const { data: { user: supabaseUser }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !supabaseUser) {
       return NextResponse.json(
-        { error: error || 'Unauthorized' },
-        { status }
+        { error: authError?.message || 'Not authenticated' },
+        { status: 401 }
       );
     }
 
-    return NextResponse.json({
+    // Get user from Airtable (simple approach)
+    const { getUserBySupabaseUid } = await import('@/lib/airtable');
+    const userData = await getUserBySupabaseUid(supabaseUser.id);
+
+    if (!userData) {
+      return NextResponse.json(
+        { error: 'User not provisioned in Airtable' },
+        { status: 403 }
+      );
+    }
+
+    const body = {
       data: {
-        id: user.id,
-        supabase_uid: user.supabase_uid,
-        email: user.email,
-        role: user.role,
-        created_at: user.created_at,
+        id: userData.id,
+        supabase_uid: userData.supabase_uid,
+        email: userData.email,
+        role: userData.role,
+        created_at: userData.created_at,
+      },
+    };
+    return NextResponse.json(body, {
+      headers: {
+        'Cache-Control': 'private, max-age=300',
       },
     });
   } catch (error) {

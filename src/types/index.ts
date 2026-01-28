@@ -50,13 +50,14 @@ export interface Submission {
   updated_at: string;
 }
 
-// Comment types
+// Comment (Feedback) types - stored in Airtable Feedback table
 export interface CommentFields {
   submission_id: string;
   user_uid: string;
   timestamp_seconds: number;
   content: string;
   parent_comment_id?: string;
+  attachment_url?: string;
   created_at: string;
 }
 
@@ -68,27 +69,9 @@ export interface Comment {
   timestamp_seconds: number;
   content: string;
   parent_comment_id?: string;
+  attachment_url?: string;
   created_at: string;
   replies?: Comment[];
-}
-
-// Annotation types
-export interface AnnotationFields {
-  submission_id: string;
-  reviewer_uid: string;
-  timestamp_seconds: number;
-  note: string;
-  created_at: string;
-}
-
-export interface Annotation {
-  id: string;
-  submission_id: string;
-  reviewer_uid: string;
-  reviewer_email?: string;
-  timestamp_seconds: number;
-  note: string;
-  created_at: string;
 }
 
 // API response types

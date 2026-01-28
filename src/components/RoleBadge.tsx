@@ -7,15 +7,15 @@ interface RoleBadgeProps {
 const roleConfig: Record<UserRole, { label: string; className: string }> = {
   submitter: {
     label: 'Submitter',
-    className: 'bg-slate-100 text-slate-700 ring-slate-600/20',
+    className: 'bg-black/5 text-black/70 ring-black/10',
   },
   reviewer: {
     label: 'Reviewer',
-    className: 'bg-purple-50 text-purple-700 ring-purple-600/20',
+    className: 'bg-[#BA836B]/10 text-[#BA836B] ring-[#BA836B]/20',
   },
   admin: {
     label: 'Admin',
-    className: 'bg-red-50 text-red-700 ring-red-600/20',
+    className: 'bg-[#061E26]/10 text-[#061E26] ring-[#061E26]/20',
   },
 };
 

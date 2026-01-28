@@ -1,0 +1,4 @@
+supabase_uid,email,role,created_at
+recExample001,admin@example.com,admin,2024-01-01
+recExample002,reviewer@example.com,reviewer,2024-01-01
+recExample003,submitter@example.com,submitter,2024-01-01

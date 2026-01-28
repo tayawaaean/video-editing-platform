@@ -45,37 +45,69 @@ export default function LoginPage() {
         } else if (data.data?.role === 'submitter') {
           router.replace('/submitter/dashboard');
         } else {
-          router.replace('/dashboard');
+          router.replace('/admin/dashboard');
         }
         router.refresh();
         return;
       }
 
       // Production mode - use Supabase
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      if (error) {
-        setError(error.message);
+      if (authError) {
+        let errorMessage: string;
+        const msg = authError.message ?? '';
+        if (msg.includes('Invalid login credentials')) {
+          errorMessage = 'Invalid email or password. Please check your credentials.';
+        } else if (msg.includes('Email not confirmed')) {
+          errorMessage = 'Please confirm your email address before logging in. Check your inbox for a confirmation email.';
+        } else if (msg.includes('User not found')) {
+          errorMessage = 'No account found with this email address.';
+        } else {
+          errorMessage = msg || 'Sign in failed. Please try again.';
+        }
+        setError(errorMessage);
         return;
       }
 
-      router.replace('/dashboard');
-      router.refresh();
-    } catch {
-      setError('An unexpected error occurred');
+      if (!data.user) {
+        setError('Login failed - no user data received');
+        return;
+      }
+
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        setError('Session not established. Please try again.');
+        return;
+      }
+
+      // Wait a moment to ensure cookies are fully set
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // Force a full page reload to ensure cookies are sent with the request
+      // The middleware will read the session and redirect to the correct role-based dashboard
+      window.location.href = '/admin/dashboard';
+      return; // Prevent any further execution
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred';
+      if (message.includes('Invalid login credentials')) {
+        setError('Invalid email or password. Please check your credentials.');
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-50 to-white">
+    <main className="min-h-screen flex items-center justify-center bg-gradient-to-b from-white to-black/5">
       <div className="w-full max-w-4xl bg-transparent p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white/90 backdrop-blur rounded-xl shadow-2xl overflow-hidden">
-          <aside className="hidden md:flex flex-col justify-center items-start p-8 bg-gradient-to-tr from-blue-600 to-indigo-600 text-white relative overflow-hidden">
+          <aside className="hidden md:flex flex-col justify-center items-start p-8 bg-gradient-to-tr from-[#061E26] to-black text-white relative overflow-hidden">
             {/* Decorative video elements */}
             <div className="absolute top-8 right-8 opacity-10">
               <svg width="120" height="120" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -110,7 +142,7 @@ export default function LoginPage() {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="mt-0.5 flex-shrink-0">
                   <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10m0-10l8-4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.7" />
                 </svg>
-                <span className="opacity-90">Frame-accurate comments & annotations</span>
+                <span className="opacity-90">Frame-accurate feedback on videos</span>
               </div>
 
               <div className="flex items-start gap-3 text-sm">
@@ -134,13 +166,13 @@ export default function LoginPage() {
             <div className="max-w-md mx-auto">
               <div className="text-center mb-6">
                 {/* Video play icon accent */}
-                <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-100 rounded-full mb-3">
+                <div className="inline-flex items-center justify-center w-12 h-12 bg-[#061E26]/10 rounded-full mb-3">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M8 5v14l11-7L8 5z" fill="#2563eb" />
                   </svg>
                 </div>
-                <h2 className="text-2xl font-bold text-gray-900">Sign in to your account</h2>
-                <p className="mt-1 text-sm text-gray-600">Enter your credentials to continue</p>
+                <h2 className="text-2xl font-bold text-black">Sign in to your account</h2>
+                <p className="mt-1 text-sm text-black/70">Enter your credentials to continue</p>
               </div>
 
               <form className="mt-6 space-y-4" onSubmit={handleLogin} noValidate aria-label="Sign in form">
@@ -152,7 +184,7 @@ export default function LoginPage() {
 
                 <div className="space-y-3">
                   <div>
-                    <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                    <label htmlFor="email" className="block text-sm font-medium text-black/80">
                       Email address
                     </label>
                     <input
@@ -165,13 +197,13 @@ export default function LoginPage() {
                       aria-invalid={!!error}
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="mt-1 block w-full px-3 py-2 border border-gray-200 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      className="mt-1 block w-full px-3 py-2 border border-black/20 rounded-md shadow-sm placeholder-black/40 focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent text-sm"
                       placeholder="you@example.com"
                     />
                   </div>
 
                   <div>
-                    <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                    <label htmlFor="password" className="block text-sm font-medium text-black/80">
                       Password
                     </label>
                     <div className="relative mt-1">
@@ -183,13 +215,13 @@ export default function LoginPage() {
                         required
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="block w-full px-3 py-2 pr-10 border border-gray-200 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        className="block w-full px-3 py-2 pr-10 border border-black/20 rounded-md shadow-sm placeholder-black/40 focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent text-sm"
                         placeholder="••••••••"
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600"
+                        className="absolute inset-y-0 right-0 flex items-center pr-3 text-black/40 hover:text-black/60"
                         aria-label={showPassword ? "Hide password" : "Show password"}
                       >
                         {showPassword ? (
@@ -208,17 +240,17 @@ export default function LoginPage() {
 
                   <div className="flex items-center justify-between">
                     <label className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-                      <span className="text-gray-600">Remember me</span>
+                      <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="h-4 w-4 text-[#061E26] focus:ring-[#061E26] border-black/20 rounded" />
+                      <span className="text-black/70">Remember me</span>
                     </label>
 
-                    <a href="#" className="text-sm text-blue-600 hover:underline">Forgot password?</a>
+                    <a href="#" className="text-sm text-[#061E26] hover:underline">Forgot password?</a>
                   </div>
 
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-[#061E26] hover:bg-black focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#061E26] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {loading ? (
                       <span className="flex items-center">
@@ -248,7 +280,7 @@ export default function LoginPage() {
                 </div>
               )}
 
-              <p className="mt-6 text-center text-xs text-gray-500">This is an internal tool. Contact your administrator for access.</p>
+              <p className="mt-6 text-center text-xs text-black/50">This is an internal tool. Contact your administrator for access.</p>
             </div>
           </section>
         </div>
