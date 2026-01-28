@@ -20,7 +20,8 @@ export interface UserFields {
 
 export interface User {
   id: string;
-  supabase_uid: string;
+  /** Supabase user id (UUID). Optional when user is sourced from Supabase users table only. */
+  supabase_uid?: string;
   email: string;
   role: UserRole;
   created_at: string;

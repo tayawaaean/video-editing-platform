@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/auth-helper';
-import { createClient } from '@/lib/supabase/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { createClient } from '@supabase/supabase-js';
+import { getUserBySupabaseUid, updateUserRole } from '@/lib/airtable';
 import { updateUserRoleSchema } from '@/lib/validations';
-import { DEV_MODE, DEV_USERS } from '@/lib/dev-mode';
-import type { User } from '@/types';
 
-// In-memory store for dev mode
-let devUsers = [...DEV_USERS];
+// Get Supabase admin client for database operations
+function getSupabaseAdmin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 // PATCH /api/admin/users/[id] - Update user role (admin only)
 export async function PATCH(
@@ -15,14 +20,15 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const { user } = await getAuthUser();
-
-    if (!user) {
+    
+    const session = await getServerSession(authOptions);
+    
+    if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Only admins can update user roles
-    if (user.role !== 'admin') {
+    if (session.user.role !== 'admin') {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
@@ -39,43 +45,97 @@ export async function PATCH(
 
     const { role } = validationResult.data;
 
-    if (DEV_MODE) {
-      const index = devUsers.findIndex(u => u.id === id);
-      if (index === -1) {
-        return NextResponse.json({ error: 'User not found' }, { status: 404 });
-      }
-      devUsers[index] = { ...devUsers[index], role };
-      return NextResponse.json({ data: devUsers[index] });
-    }
-
-    // Update user role in Supabase (id here is the UUID from users table)
-    const supabase = await createClient();
-    const { data: updatedUserData, error: updateError } = await supabase
+    // Update user role in Supabase users table
+    const supabase = getSupabaseAdmin();
+    
+    const { data: updatedUser, error: updateError } = await supabase
       .from('users')
       .update({ role })
       .eq('id', id)
-      .select('id, supabase_uid, email, role, created_at')
+      .select('id, email, role, created_at')
       .single();
 
-    if (updateError || !updatedUserData) {
+    if (updateError) {
       console.error('Error updating user role:', updateError);
+      if (updateError.code === 'PGRST116') {
+        return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      }
       return NextResponse.json(
-        { error: updateError?.message || 'User not found' },
-        { status: updateError?.code === 'PGRST116' ? 404 : 500 }
+        { error: 'Failed to update user' },
+        { status: 500 }
       );
     }
 
-    const updatedUser: User = {
-      id: updatedUserData.id,
-      supabase_uid: updatedUserData.supabase_uid,
-      email: updatedUserData.email,
-      role: updatedUserData.role as User['role'],
-      created_at: updatedUserData.created_at,
-    };
+    // Sync role to Airtable (id is Supabase user id; Airtable links via supabase_uid)
+    try {
+      const airtableUser = await getUserBySupabaseUid(id);
+      if (airtableUser) {
+        await updateUserRole(airtableUser.id, role);
+      }
+    } catch (airtableError) {
+      console.warn('Airtable role sync failed:', airtableError);
+    }
 
-    return NextResponse.json({ data: updatedUser });
+    return NextResponse.json({
+      data: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        created_at: updatedUser.created_at,
+      },
+    });
   } catch (error) {
     console.error('Error updating user role:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// DELETE /api/admin/users/[id] - Delete a user (admin only)
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    
+    const session = await getServerSession(authOptions);
+    
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Only admins can delete users
+    if (session.user.role !== 'admin') {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    }
+
+    // Prevent self-deletion
+    if (session.user.id === id) {
+      return NextResponse.json(
+        { error: 'Cannot delete your own account' },
+        { status: 400 }
+      );
+    }
+
+    // Delete user from Supabase users table
+    const supabase = getSupabaseAdmin();
+    
+    const { error: deleteError } = await supabase
+      .from('users')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) {
+      console.error('Error deleting user:', deleteError);
+      return NextResponse.json(
+        { error: 'Failed to delete user' },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting user:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

@@ -1,13 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/auth-helper';
-import { createClient } from '@/lib/supabase/server';
+import { getServerSession } from 'next-auth';
+import { authOptions, getUserById, verifyPassword, hashPassword } from '@/lib/auth';
+import { createClient } from '@supabase/supabase-js';
 import { changePasswordSchema } from '@/lib/validations';
+
+// Get Supabase admin client for database operations
+function getSupabaseAdmin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const { user } = await getAuthUser();
+    const session = await getServerSession(authOptions);
 
-    if (!user) {
+    if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -23,31 +32,32 @@ export async function POST(request: NextRequest) {
 
     const { currentPassword, newPassword } = validationResult.data;
 
-    const supabase = await createClient();
-
-    const { data: authUser, error: getUserError } = await supabase.auth.getUser();
-
-    if (getUserError || !authUser.user) {
-      return NextResponse.json({ error: 'Failed to verify user' }, { status: 401 });
+    // Get user from database to verify current password
+    const user = await getUserById(session.user.id);
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-      email: user.email,
-      password: currentPassword,
-    });
-
-    if (signInError || !signInData.user) {
+    // Verify current password
+    const isValidPassword = await verifyPassword(currentPassword, user.password_hash);
+    if (!isValidPassword) {
       return NextResponse.json({ error: 'Current password is incorrect' }, { status: 400 });
     }
 
-    const { error: updateError } = await supabase.auth.updateUser({
-      password: newPassword,
-    });
+    // Hash new password
+    const newPasswordHash = await hashPassword(newPassword);
+
+    // Update password in database
+    const supabase = getSupabaseAdmin();
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ password_hash: newPasswordHash })
+      .eq('id', session.user.id);
 
     if (updateError) {
       console.error('Password update error:', updateError);
       return NextResponse.json(
-        { error: updateError.message || 'Failed to update password' },
+        { error: 'Failed to update password' },
         { status: 500 }
       );
     }

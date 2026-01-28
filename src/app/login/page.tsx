@@ -1,10 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-
-const DEV_MODE = process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -14,7 +12,6 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const supabase = createClient();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,82 +19,47 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // Development mode - bypass Supabase auth
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      });
 
-      if (DEV_MODE) {
-        const response = await fetch('/api/auth/dev-login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password }),
-        });
+      if (result?.error) {
+        setError(result.error === 'CredentialsSignin' 
+          ? 'Invalid email or password. Please check your credentials.'
+          : result.error
+        );
+        return;
+      }
 
-        const data = await response.json();
-        if (!response.ok) {
-          setError(data.error || 'Invalid credentials');
-          return;
-        }
-
-        // Redirect based on role
-        if (data.data?.role === 'admin') {
-          router.replace('/admin/dashboard');
-        } else if (data.data?.role === 'reviewer') {
-          router.replace('/reviewer/dashboard');
-        } else if (data.data?.role === 'submitter') {
-          router.replace('/submitter/dashboard');
+      if (result?.ok) {
+        const response = await fetch('/api/me');
+        if (response.ok) {
+          const contentType = response.headers.get('content-type');
+          if (contentType?.includes('application/json')) {
+            const data = await response.json();
+            const role = data.user?.role;
+            if (role === 'admin') {
+              router.replace('/admin/dashboard');
+            } else if (role === 'reviewer') {
+              router.replace('/reviewer/dashboard');
+            } else if (role === 'submitter') {
+              router.replace('/submitter/dashboard');
+            } else {
+              router.replace('/admin/dashboard');
+            }
+          } else {
+            router.replace('/admin/dashboard');
+          }
         } else {
           router.replace('/admin/dashboard');
         }
         router.refresh();
-        return;
       }
-
-      // Production mode - use Supabase
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (authError) {
-        let errorMessage: string;
-        const msg = authError.message ?? '';
-        if (msg.includes('Invalid login credentials')) {
-          errorMessage = 'Invalid email or password. Please check your credentials.';
-        } else if (msg.includes('Email not confirmed')) {
-          errorMessage = 'Please confirm your email address before logging in. Check your inbox for a confirmation email.';
-        } else if (msg.includes('User not found')) {
-          errorMessage = 'No account found with this email address.';
-        } else {
-          errorMessage = msg || 'Sign in failed. Please try again.';
-        }
-        setError(errorMessage);
-        return;
-      }
-
-      if (!data.user) {
-        setError('Login failed - no user data received');
-        return;
-      }
-
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !session) {
-        setError('Session not established. Please try again.');
-        return;
-      }
-
-      // Wait a moment to ensure cookies are fully set
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      // Force a full page reload to ensure cookies are sent with the request
-      // The middleware will read the session and redirect to the correct role-based dashboard
-      window.location.href = '/admin/dashboard';
-      return; // Prevent any further execution
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unexpected error occurred';
-      if (message.includes('Invalid login credentials')) {
-        setError('Invalid email or password. Please check your credentials.');
-      } else {
-        setError(message);
-      }
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -216,7 +178,7 @@ export default function LoginPage() {
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         className="block w-full px-3 py-2 pr-10 border border-black/20 rounded-md shadow-sm placeholder-black/40 focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent text-sm"
-                        placeholder="••••••••"
+                        placeholder="Enter your password"
                       />
                       <button
                         type="button"
@@ -266,19 +228,6 @@ export default function LoginPage() {
                   </button>
                 </div>
               </form>
-
-              {DEV_MODE && (
-                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                  <p className="text-xs font-medium text-yellow-800 mb-2">🔧 Development Mode</p>
-                  <p className="text-xs text-yellow-700 mb-1">Password: <code className="bg-yellow-100 px-1 rounded">123password</code></p>
-                  <p className="text-xs text-yellow-700">Test accounts:</p>
-                  <ul className="text-xs text-yellow-700 ml-3 list-disc">
-                    <li>admin@example.com</li>
-                    <li>reviewer@example.com</li>
-                    <li>submitter@example.com</li>
-                  </ul>
-                </div>
-              )}
 
               <p className="mt-6 text-center text-xs text-black/50">This is an internal tool. Contact your administrator for access.</p>
             </div>

@@ -37,7 +37,9 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
   const [frameCapturing, setFrameCapturing] = useState(false);
   const [frameCaptureError, setFrameCaptureError] = useState<string | null>(null);
 
-  const canReview = user?.role === 'reviewer' || user?.role === 'admin';
+  const roleLower = user?.role?.toLowerCase();
+  const canReview = roleLower === 'reviewer' || roleLower === 'admin';
+  const canPostFeedback = canReview;
 
   const getRoleDashboardPath = () => {
     if (!user) return '/admin/dashboard';
@@ -122,70 +124,43 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
     setShowTimestampModal(false);
   };
 
-  const handleCaptureClick = () => {
-    const capture = (window as Window & { __captureVideoTime?: () => void }).__captureVideoTime;
-    if (typeof capture === 'function') {
-      capture();
-    }
-    setIsReplyTimestamp(false);
-    setShowTimestampModal(true);
-  };
-
-  const handleReplyCaptureClick = () => {
-    const capture = (window as Window & { __captureVideoTime?: () => void }).__captureVideoTime;
-    if (typeof capture === 'function') {
-      capture();
-    }
-    setIsReplyTimestamp(true);
-    setShowTimestampModal(true);
-  };
+  // State for screenshot capture modal (for Google Drive embeds)
+  const [showScreenshotModal, setShowScreenshotModal] = useState(false);
+  const [capturedTimestamp, setCapturedTimestamp] = useState<number>(0);
 
   const handleFrameCapture = useCallback((payload: { timestamp_seconds: number; imageDataUrl: string }) => {
     setCommentTimestamp(formatTimestampFromSeconds(payload.timestamp_seconds));
     setCommentAttachmentPreview(payload.imageDataUrl);
     setCommentAttachmentDataUrl(payload.imageDataUrl);
     setCommentAttachment(null);
+    setFrameCaptureError(null);
   }, []);
 
+  // Single "Capture Frame" button handler - smart behavior based on video type
   const handleCaptureFrameClick = async () => {
+    setFrameCaptureError(null);
+    
+    // Try native video capture first (works for direct video elements)
     const capture = (window as Window & { __captureFrame?: () => boolean }).__captureFrame;
     if (typeof capture === 'function' && capture()) {
-      setFrameCaptureError(null);
-      return;
+      return; // Success - frame was captured from native video
     }
-    const seconds = parseTimestampInput(commentTimestamp);
-    if (seconds === 0) {
-      setFrameCaptureError('Enter the video timestamp first (e.g. 1:30), then click Capture frame again.');
-      setShowTimestampModal(true);
-      setIsReplyTimestamp(false);
-      return;
+    
+    // For Google Drive embeds, show screenshot modal
+    // First, try to get current timestamp from the player
+    const captureTime = (window as Window & { __captureVideoTime?: () => void }).__captureVideoTime;
+    if (typeof captureTime === 'function') {
+      captureTime();
     }
-    setFrameCaptureError(null);
-    setFrameCapturing(true);
-    try {
-      const response = await fetch(`/api/submissions/${submissionId}/frame`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ timestamp_seconds: seconds }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Frame capture failed');
-      }
-      if (data.imageDataUrl != null && typeof data.timestamp_seconds === 'number') {
-        setCommentTimestamp(formatTimestampFromSeconds(data.timestamp_seconds));
-        setCommentAttachmentPreview(data.imageDataUrl);
-        setCommentAttachmentDataUrl(data.imageDataUrl);
-        setCommentAttachment(null);
-      }
-    } catch (err) {
-      setFrameCaptureError(err instanceof Error ? err.message : 'Frame capture failed');
-    } finally {
-      setFrameCapturing(false);
-    }
+    
+    // Store current timestamp (from input or 0)
+    const currentSeconds = parseTimestampInput(commentTimestamp);
+    setCapturedTimestamp(currentSeconds);
+    setShowScreenshotModal(true);
   };
 
-  const handlePasteScreenshot = async () => {
+  // Handle paste from clipboard (used in screenshot modal)
+  const handlePasteFromClipboard = async () => {
     setFrameCaptureError(null);
     try {
       const items = await navigator.clipboard.read();
@@ -202,16 +177,40 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
         setCommentAttachmentPreview(dataUrl);
         setCommentAttachmentDataUrl(dataUrl);
         setCommentAttachment(null);
+        // Use captured timestamp
+        if (capturedTimestamp > 0) {
+          setCommentTimestamp(formatTimestampFromSeconds(capturedTimestamp));
+        }
+        setShowScreenshotModal(false);
         return;
       }
-      setFrameCaptureError('No image in clipboard. Pause the video, take a screenshot (e.g. Win+Shift+S or Cmd+Shift+4), then click Paste screenshot again.');
+      setFrameCaptureError('No image found in clipboard. Take a screenshot first, then click "Paste Screenshot".');
     } catch (err) {
       if (err instanceof Error && err.name === 'NotAllowedError') {
-        setFrameCaptureError('Clipboard access denied. Allow paste when the browser prompts, then try again.');
+        setFrameCaptureError('Clipboard access denied. Please allow clipboard access when prompted.');
       } else {
-        setFrameCaptureError(err instanceof Error ? err.message : 'Could not read screenshot from clipboard.');
+        setFrameCaptureError(err instanceof Error ? err.message : 'Could not read from clipboard.');
       }
     }
+  };
+
+  // Legacy handlers for backward compatibility
+  const handleCaptureClick = () => {
+    const capture = (window as Window & { __captureVideoTime?: () => void }).__captureVideoTime;
+    if (typeof capture === 'function') {
+      capture();
+    }
+    setIsReplyTimestamp(false);
+    setShowTimestampModal(true);
+  };
+
+  const handleReplyCaptureClick = () => {
+    const capture = (window as Window & { __captureVideoTime?: () => void }).__captureVideoTime;
+    if (typeof capture === 'function') {
+      capture();
+    }
+    setIsReplyTimestamp(true);
+    setShowTimestampModal(true);
   };
 
   const handleAttachmentChange = (e: React.ChangeEvent<HTMLInputElement>, isReply = false) => {
@@ -466,7 +465,7 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
   if (loading) return <PageLoading />;
   if (error) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">{error}</div>
       </div>
     );
@@ -474,7 +473,7 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
   if (!submission) return null;
 
   return (
-    <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 pb-6">
+    <div className="w-full px-4 sm:px-6 lg:px-8 pb-6">
       <div className="mb-6">
         <Link href={getRoleDashboardPath()} className="inline-flex items-center text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors mb-4 group">
           <svg className="mr-2 h-4 w-4 group-hover:-translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -548,97 +547,115 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
                 onTimestampCapture={handleTimestampCapture}
                 onCaptureRequest={handleCaptureClick}
                 onFrameCapture={handleFrameCapture}
+                autoCaptureOnPause={canPostFeedback}
               />
             </div>
           </div>
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <svg className="w-5 h-5 text-[#061E26]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-                <h2 className="text-lg font-bold text-black">Add Feedback</h2>
-              </div>
-              <form onSubmit={handleAddComment} className="space-y-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="text"
-                    placeholder="0:00"
-                    value={commentTimestamp}
-                    onChange={(e) => setCommentTimestamp(e.target.value)}
-                    className="flex-1 min-w-[80px] px-3 py-2.5 text-sm font-mono border border-black/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent"
-                  />
-                  <button type="button" onClick={handleCaptureClick} className="px-3 py-2.5 text-xs font-medium text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg transition-colors border border-[#061E26]/20" title="Set timestamp (manual or from player if supported)">
-                    Capture time
-                  </button>
-                  <button type="button" onClick={handleCaptureFrameClick} disabled={frameCapturing} className="px-3 py-2.5 text-xs font-medium text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg transition-colors border border-[#061E26]/20 disabled:opacity-50 disabled:cursor-not-allowed" title="Snapshot frame at timestamp (direct video: in-browser; Drive: enter time then click, uses server)">
-                    {frameCapturing ? 'Capturing...' : 'Capture frame'}
-                  </button>
-                  <button type="button" onClick={handlePasteScreenshot} className="px-3 py-2.5 text-xs font-medium text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg transition-colors border border-[#061E26]/20" title="Paste a screenshot from clipboard (pause video, take screenshot with Win+Shift+S or Cmd+Shift+4, then click here)">
-                    Paste screenshot
-                  </button>
+          {canPostFeedback && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <svg className="w-5 h-5 text-[#061E26]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  </svg>
+                  <h2 className="text-lg font-bold text-black">Add Feedback</h2>
                 </div>
-                {frameCaptureError && (
-                  <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-md">{frameCaptureError}</p>
-                )}
-                <p className="text-xs text-black/50">
-                  Paste screenshot: pause the video at the frame you want, take a screenshot (Win+Shift+S or Cmd+Shift+4), then click Paste screenshot. Set the timestamp above and add your comment.
-                </p>
-                <textarea
-                  placeholder="Share your feedback or ask a question..."
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  rows={4}
-                  className="w-full px-4 py-3 text-sm border border-black/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent resize-none"
-                />
-                <div className="space-y-2">
-                  <label className="block">
-                    <input type="file" onChange={(e) => handleAttachmentChange(e, false)} className="hidden" accept="image/*,video/*,.pdf,.doc,.docx" />
-                    <div className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg cursor-pointer transition-colors border border-[#061E26]/20">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                      </svg>
-                      <span>Attach File</span>
-                    </div>
-                  </label>
+                <form onSubmit={handleAddComment} className="space-y-4">
+                  {/* Captured Frame Preview */}
                   {commentAttachmentPreview && (
-                    <div className="relative p-3 bg-black/5 rounded-lg border border-black/10">
-                      <button type="button" onClick={() => removeAttachment(false)} className="absolute top-2 right-2 p-1 text-black/60 hover:text-black rounded-full hover:bg-black/10 transition-colors">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                      {commentAttachment?.type.startsWith('image/') ? (
-                        <img src={commentAttachmentPreview} alt="Preview" className="max-w-full max-h-32 rounded" />
-                      ) : (
-                        <div className="flex items-center gap-2 text-sm text-black/70">
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    <div className="relative bg-black/5 rounded-lg border border-[#061E26]/20 overflow-hidden">
+                      <div className="flex items-center justify-between px-3 py-2 bg-[#061E26]/10 border-b border-[#061E26]/20">
+                        <div className="flex items-center gap-2">
+                          <svg className="w-4 h-4 text-[#061E26]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                           </svg>
-                          <span>{commentAttachment?.name}</span>
+                          <span className="text-xs font-semibold text-[#061E26]">Captured Frame</span>
+                          <span className="text-xs font-mono text-[#061E26]/70 bg-white/50 px-2 py-0.5 rounded">@ {commentTimestamp}</span>
                         </div>
-                      )}
+                        <button type="button" onClick={() => removeAttachment(false)} className="p-1 text-[#061E26]/60 hover:text-[#061E26] rounded hover:bg-[#061E26]/10 transition-colors">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                      <div className="p-3">
+                        <img src={commentAttachmentPreview} alt="Captured frame" className="w-full max-h-48 object-contain rounded" />
+                      </div>
                     </div>
                   )}
-                </div>
-                <button
-                  type="submit"
-                  disabled={submitting || (!newComment.trim() && !commentAttachment && !commentAttachmentDataUrl)}
-                  className="w-full px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-[#061E26] to-black rounded-lg hover:shadow-lg hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all shadow-md"
-                >
-                  {submitting ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+
+                  {/* Capture Frame Button - Single action */}
+                  {!commentAttachmentPreview && (
+                    <button
+                      type="button"
+                      onClick={handleCaptureFrameClick}
+                      disabled={frameCapturing}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg transition-all border-2 border-dashed border-[#061E26]/30 hover:border-[#061E26]/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                       </svg>
-                      Adding...
-                    </span>
-                  ) : 'Post Feedback'}
-                </button>
-              </form>
+                      {frameCapturing ? 'Capturing...' : 'Capture Frame'}
+                    </button>
+                  )}
+
+                  {frameCaptureError && (
+                    <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-md">{frameCaptureError}</p>
+                  )}
+
+                  {/* Timestamp input (hidden when frame is captured, shown for manual entry) */}
+                  {!commentAttachmentPreview && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-black/50">Or enter timestamp manually:</span>
+                      <input
+                        type="text"
+                        placeholder="0:00"
+                        value={commentTimestamp}
+                        onChange={(e) => setCommentTimestamp(e.target.value)}
+                        className="w-20 px-2 py-1 text-xs font-mono border border-black/20 rounded focus:outline-none focus:ring-1 focus:ring-[#061E26]"
+                      />
+                    </div>
+                  )}
+
+                  <textarea
+                    placeholder="Share your feedback or ask a question..."
+                    value={newComment}
+                    onChange={(e) => setNewComment(e.target.value)}
+                    rows={4}
+                    className="w-full px-4 py-3 text-sm border border-black/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent resize-none"
+                  />
+                  {/* Additional file attachment (only show if no captured frame) */}
+                  {!commentAttachmentPreview && (
+                    <label className="block">
+                      <input type="file" onChange={(e) => handleAttachmentChange(e, false)} className="hidden" accept="image/*,video/*,.pdf,.doc,.docx" />
+                      <div className="flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-black/50 hover:text-[#061E26] hover:bg-[#061E26]/5 rounded-lg cursor-pointer transition-colors">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                        </svg>
+                        <span>Or attach a file instead</span>
+                      </div>
+                    </label>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={submitting || (!newComment.trim() && !commentAttachment && !commentAttachmentDataUrl)}
+                    className="w-full px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-[#061E26] to-black rounded-lg hover:shadow-lg hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all shadow-md"
+                  >
+                    {submitting ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        Adding...
+                      </span>
+                    ) : 'Post Feedback'}
+                  </button>
+                </form>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="xl:col-span-1">
@@ -766,6 +783,95 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
                   Cancel
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Screenshot Capture Modal - for Google Drive embeds */}
+      {showScreenshotModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowScreenshotModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-lg w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-[#061E26]/10 rounded-lg">
+                <svg className="w-6 h-6 text-[#061E26]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-bold text-black">Capture Frame Screenshot</h3>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                <span className="flex-shrink-0 w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs font-bold">1</span>
+                <div>
+                  <p className="text-sm font-medium text-blue-900">Pause the video at the frame you want</p>
+                  <p className="text-xs text-blue-700 mt-0.5">Make sure you can see the exact moment you want to reference</p>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                <span className="flex-shrink-0 w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs font-bold">2</span>
+                <div>
+                  <p className="text-sm font-medium text-blue-900">Take a screenshot</p>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    <span className="inline-flex items-center px-2 py-0.5 text-xs font-mono bg-white border border-blue-200 rounded">
+                      <span className="text-blue-700">Windows:</span>&nbsp;<strong>Win + Shift + S</strong>
+                    </span>
+                    <span className="inline-flex items-center px-2 py-0.5 text-xs font-mono bg-white border border-blue-200 rounded">
+                      <span className="text-blue-700">Mac:</span>&nbsp;<strong>Cmd + Shift + 4</strong>
+                    </span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                <span className="flex-shrink-0 w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs font-bold">3</span>
+                <div>
+                  <p className="text-sm font-medium text-blue-900">Click the button below to paste</p>
+                  <p className="text-xs text-blue-700 mt-0.5">Your screenshot will be automatically attached with the timestamp</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Timestamp input */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-black mb-2">Video Timestamp</label>
+              <input
+                type="text"
+                value={commentTimestamp}
+                onChange={(e) => setCommentTimestamp(e.target.value)}
+                placeholder="0:00 or 1:23:45"
+                className="w-full px-4 py-2.5 text-sm font-mono border border-black/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent"
+              />
+              <p className="text-xs text-black/50 mt-1">Enter the video timestamp when you paused (e.g. 1:30 for 1 minute 30 seconds)</p>
+            </div>
+
+            {frameCaptureError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-lg">
+                <p className="text-xs text-red-600">{frameCaptureError}</p>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={handlePasteFromClipboard}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-[#061E26] to-black rounded-lg hover:shadow-lg transition-all"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+                Paste Screenshot
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowScreenshotModal(false); setFrameCaptureError(null); }}
+                className="px-4 py-3 text-sm font-medium text-black/60 hover:text-black hover:bg-black/5 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>

@@ -46,6 +46,17 @@ const navItems: NavItem[] = [
     roles: ['reviewer'],
   },
   {
+    label: 'Review',
+    href: '/reviewer/review',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+      </svg>
+    ),
+    roles: ['reviewer'],
+  },
+  {
     label: 'Dashboard',
     href: '/submitter/dashboard',
     icon: (
@@ -124,10 +135,19 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
       return pathname === href;
     }
 
-    // My Submissions: highlight on /submissions list and on submission detail /submissions/[id]
+    // Reviewer's Review page: highlight on /reviewer/review and on submission detail /submissions/[id]
+    if (href === '/reviewer/review') {
+      if (pathname === '/reviewer/review') return true;
+      // Also highlight when viewing a submission detail (for reviewers)
+      if (user?.role === 'reviewer' && pathname.startsWith('/submissions/') && pathname !== '/submissions/new') return true;
+      return false;
+    }
+
+    // Submitter's My Submissions: highlight on /submissions list and on submission detail /submissions/[id]
     if (href === '/submissions') {
       if (pathname === '/submissions') return true;
-      if (pathname.startsWith('/submissions/') && pathname !== '/submissions/new') return true;
+      // Only highlight for submitters on submission detail
+      if (user?.role === 'submitter' && pathname.startsWith('/submissions/') && pathname !== '/submissions/new') return true;
       return false;
     }
 

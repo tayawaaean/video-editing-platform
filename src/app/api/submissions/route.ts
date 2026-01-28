@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { getSubmissions, createSubmission } from '@/lib/airtable';
 import { createSubmissionSchema } from '@/lib/validations';
 import { parseGoogleDriveUrl } from '@/lib/google-drive';
@@ -8,45 +9,22 @@ import type { Submission } from '@/types';
 // GET /api/submissions - List submissions (filtered by role)
 export async function GET(request: NextRequest) {
   try {
-    // Simple auth - same as /api/me
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll();
-          },
-          setAll() {},
-        },
-      }
-    );
-
-    const { data: { user: supabaseUser } } = await supabase.auth.getUser();
+    const session = await getServerSession(authOptions);
     
-    if (!supabaseUser) {
+    if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user from Airtable (simple approach)
-    const { getUserBySupabaseUid } = await import('@/lib/airtable');
-    const userData = await getUserBySupabaseUid(supabaseUser.id);
-
-    if (!userData) {
-      return NextResponse.json({ error: 'User not found in Airtable' }, { status: 403 });
-    }
-
-    const user = userData;
-    const supabaseUid = supabaseUser.id;
+    const { id: userId, role } = session.user;
 
     // Parse query params
     const searchParams = request.nextUrl.searchParams;
     const status = searchParams.get('status') || undefined;
 
-    // Always use Airtable
+    // Get submissions - submitters only see their own
     let submissions: Submission[];
-    if (user.role === 'submitter') {
-      submissions = await getSubmissions(supabaseUid!, status);
+    if (role === 'submitter') {
+      submissions = await getSubmissions(userId, status);
     } else {
       submissions = await getSubmissions(undefined, status);
     }
@@ -61,36 +39,13 @@ export async function GET(request: NextRequest) {
 // POST /api/submissions - Create a new submission
 export async function POST(request: NextRequest) {
   try {
-    // Simple auth - same as /api/me
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll();
-          },
-          setAll() {},
-        },
-      }
-    );
-
-    const { data: { user: supabaseUser } } = await supabase.auth.getUser();
+    const session = await getServerSession(authOptions);
     
-    if (!supabaseUser) {
+    if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user from Airtable (simple approach)
-    const { getUserBySupabaseUid } = await import('@/lib/airtable');
-    const userData = await getUserBySupabaseUid(supabaseUser.id);
-
-    if (!userData) {
-      return NextResponse.json({ error: 'User not found in Airtable' }, { status: 403 });
-    }
-
-    const user = userData;
-    const supabaseUid = supabaseUser.id;
+    const { id: userId } = session.user;
 
     const body = await request.json();
     
@@ -114,14 +69,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Always create in Airtable
+    // Create submission in Airtable
     try {
       const submission = await createSubmission({
         title,
         description: description || '',
         google_drive_url,
         embed_url: driveResult.embedUrl!,
-        submitter_uid: supabaseUid!,
+        submitter_uid: userId,
       });
 
       console.log('Submission created successfully in Airtable:', submission.id);
@@ -130,7 +85,7 @@ export async function POST(request: NextRequest) {
       console.error('Error creating submission in Airtable:', createError);
       const errorMessage = createError instanceof Error ? createError.message : 'Unknown error';
       return NextResponse.json(
-        { error: `Failed to create submission in Airtable: ${errorMessage}` },
+        { error: `Failed to create submission: ${errorMessage}` },
         { status: 500 }
       );
     }

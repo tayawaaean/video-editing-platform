@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { getSubmissionById } from '@/lib/airtable';
 import { getDriveDirectDownloadUrl } from '@/lib/google-drive';
 import { checkFfmpegAvailable, extractFrameAtTimestamp } from '@/lib/frame-extract';
@@ -30,36 +31,21 @@ export async function POST(
 
     const { id: submissionId } = await params;
 
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll();
-          },
-          setAll() {},
-        },
-      }
-    );
-
-    const { data: { user: supabaseUser } } = await supabase.auth.getUser();
-    if (!supabaseUser) {
+    const session = await getServerSession(authOptions);
+    
+    if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { getUserBySupabaseUid } = await import('@/lib/airtable');
-    const userData = await getUserBySupabaseUid(supabaseUser.id);
-    if (!userData) {
-      return NextResponse.json({ error: 'User not found' }, { status: 403 });
-    }
+    const { id: userId, role } = session.user;
 
     const submission = await getSubmissionById(submissionId);
     if (!submission) {
       return NextResponse.json({ error: 'Submission not found' }, { status: 404 });
     }
 
-    if (userData.role === 'submitter' && submission.submitter_uid !== supabaseUser.id) {
+    // Submitters can only access their own submissions
+    if (role === 'submitter' && submission.submitter_uid !== userId) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 

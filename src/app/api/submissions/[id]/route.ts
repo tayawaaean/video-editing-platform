@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { getSubmissionById, updateSubmissionStatus } from '@/lib/airtable';
 import { updateSubmissionStatusSchema } from '@/lib/validations';
-import type { Submission } from '@/types';
 
 // GET /api/submissions/[id] - Get a single submission
 export async function GET(
@@ -12,45 +12,22 @@ export async function GET(
   try {
     const { id } = await params;
     
-    // Simple auth - same as /api/submissions
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll();
-          },
-          setAll() {},
-        },
-      }
-    );
-
-    const { data: { user: supabaseUser } } = await supabase.auth.getUser();
+    const session = await getServerSession(authOptions);
     
-    if (!supabaseUser) {
+    if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user from Airtable
-    const { getUserBySupabaseUid } = await import('@/lib/airtable');
-    const userData = await getUserBySupabaseUid(supabaseUser.id);
+    const { id: userId, role } = session.user;
 
-    if (!userData) {
-      return NextResponse.json({ error: 'User not found in Airtable' }, { status: 403 });
-    }
-
-    const user = userData;
-    const supabaseUid = supabaseUser.id;
-
-    // Always fetch from Airtable
+    // Fetch submission from Airtable
     const submission = await getSubmissionById(id);
     if (!submission) {
       return NextResponse.json({ error: 'Submission not found' }, { status: 404 });
     }
 
     // Submitters can only view their own submissions
-    if (user.role === 'submitter' && submission.submitter_uid !== supabaseUid) {
+    if (role === 'submitter' && submission.submitter_uid !== userId) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
@@ -69,42 +46,20 @@ export async function PATCH(
   try {
     const { id } = await params;
     
-    // Simple auth - same as /api/submissions
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll();
-          },
-          setAll() {},
-        },
-      }
-    );
-
-    const { data: { user: supabaseUser } } = await supabase.auth.getUser();
+    const session = await getServerSession(authOptions);
     
-    if (!supabaseUser) {
+    if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user from Airtable
-    const { getUserBySupabaseUid } = await import('@/lib/airtable');
-    const userData = await getUserBySupabaseUid(supabaseUser.id);
-
-    if (!userData) {
-      return NextResponse.json({ error: 'User not found in Airtable' }, { status: 403 });
-    }
-
-    const user = userData;
+    const { role } = session.user;
 
     // Only reviewers and admins can update status
-    if (user.role === 'submitter') {
+    if (role === 'submitter') {
       return NextResponse.json({ error: 'Only reviewers can update status' }, { status: 403 });
     }
 
-    // Always fetch from Airtable
+    // Fetch submission from Airtable
     const submission = await getSubmissionById(id);
     if (!submission) {
       return NextResponse.json({ error: 'Submission not found' }, { status: 404 });
@@ -123,7 +78,7 @@ export async function PATCH(
 
     const { status } = validationResult.data;
 
-    // Always update in Airtable
+    // Update in Airtable
     const updatedSubmission = await updateSubmissionStatus(id, status);
 
     return NextResponse.json({ data: updatedSubmission });

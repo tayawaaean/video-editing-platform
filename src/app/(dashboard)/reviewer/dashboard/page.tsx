@@ -2,16 +2,13 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { StatusBadge, EmptyState, VideoIcon, TableSkeleton, StatCard } from '@/components';
-import { useAuth } from '@/contexts/AuthContext';
+import { StatusBadge, StatCard } from '@/components';
 import { useDataCache } from '@/contexts/DataCacheContext';
-import type { Submission, SubmissionStatus } from '@/types';
+import type { Submission } from '@/types';
 
 export default function ReviewerDashboardPage() {
-  const { user } = useAuth();
   const { getCache, setCache } = useDataCache();
   
-  // Initialize with cache if available
   const [submissions, setSubmissions] = useState<Submission[]>(() => {
     return getCache<Submission[]>(`submissions:reviewer:all`) || [];
   });
@@ -19,34 +16,24 @@ export default function ReviewerDashboardPage() {
     return !getCache<Submission[]>(`submissions:reviewer:all`);
   });
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<SubmissionStatus | ''>('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
 
   const fetchSubmissions = useCallback(async (showLoading = true) => {
     try {
       if (showLoading) {
         setLoading(true);
       }
-      const params = new URLSearchParams();
-      if (statusFilter) {
-        params.set('status', statusFilter);
-      }
       
-      const cacheKey = `submissions:reviewer:${statusFilter || 'all'}`;
+      const cacheKey = `submissions:reviewer:all`;
       
-      // Check cache first
       const cachedData = getCache<Submission[]>(cacheKey);
       if (cachedData && showLoading) {
         setSubmissions(cachedData);
         setLoading(false);
         setError(null);
-        // Still fetch in background to refresh
         showLoading = false;
       }
       
-      const response = await fetch(`/api/submissions?${params.toString()}`);
+      const response = await fetch(`/api/submissions`);
       const contentType = response.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
         const text = await response.text();
@@ -66,71 +53,57 @@ export default function ReviewerDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, getCache, setCache]);
+  }, [getCache, setCache]);
 
   useEffect(() => {
-    const cacheKey = `submissions:reviewer:${statusFilter || 'all'}`;
+    const cacheKey = `submissions:reviewer:all`;
     const cachedData = getCache<Submission[]>(cacheKey);
     
     if (cachedData) {
-      // Use cached data immediately, no skeleton
       setSubmissions(cachedData);
       setLoading(false);
-      // Fetch fresh data in background
       fetchSubmissions(false);
     } else {
-      // No cache, fetch with loading
       setLoading(true);
       fetchSubmissions(true);
     }
-  }, [statusFilter, fetchSubmissions, getCache]);
-
-  const filteredSubmissions = submissions.filter((submission) =>
-    submission.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  }, [fetchSubmissions, getCache]);
 
   // Sort by updated_at (most recent first) for latest submissions
-  const sortedSubmissions = [...filteredSubmissions].sort((a, b) => {
+  const sortedSubmissions = [...submissions].sort((a, b) => {
     return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
   });
 
   // Get latest 3 submissions for dashboard preview
-  const latestSubmissions = sortedSubmissions.slice(0, 3);
-
-  // Pagination logic for full list
-  const totalPages = Math.ceil(filteredSubmissions.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedSubmissions = filteredSubmissions.slice(startIndex, endIndex);
-
-  // Reset to page 1 when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [statusFilter, searchQuery]);
-
-  const statusOptions: { value: SubmissionStatus | ''; label: string }[] = [
-    { value: '', label: 'All Status' },
-    { value: 'pending', label: 'Pending Review' },
-    { value: 'reviewing', label: 'In Review' },
-    { value: 'completed', label: 'Completed' },
-  ];
+  const recentSubmissions = sortedSubmissions.slice(0, 3);
 
   const stats = {
+    total: submissions.length,
     pending: submissions.filter((s) => s.status === 'pending').length,
     reviewing: submissions.filter((s) => s.status === 'reviewing').length,
     completed: submissions.filter((s) => s.status === 'completed').length,
   };
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="w-full">
       <div className="mb-8">
-        <h1 className="text-4xl font-bold tracking-tight text-black">Reviewer Dashboard</h1>
+        <h1 className="text-4xl font-bold tracking-tight text-black">Dashboard</h1>
         <p className="mt-3 text-lg font-light tracking-wide text-black/70">
-          Review submissions, provide feedback, and approve completed work
+          Overview of submissions and review activity.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+        <StatCard
+          label="Total"
+          value={stats.total}
+          tone="primary"
+          icon={(
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          )}
+        />
         <StatCard
           label="Pending Review"
           value={stats.pending}
@@ -165,140 +138,23 @@ export default function ReviewerDashboardPage() {
       </div>
 
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-black">Latest Updates</h2>
+        <h2 className="text-2xl font-bold text-black">Recent Submissions</h2>
         <p className="mt-2 text-base text-black/70">
-          Recent submissions with status changes or new feedback
+          Latest submissions awaiting review or recently updated.
         </p>
       </div>
 
-      {!loading && !error && latestSubmissions.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-black/10 overflow-hidden mb-6">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-black/10">
-              <thead className="bg-gradient-to-r from-white to-black/5">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
-                    Title
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
-                    Updated
-                  </th>
-                  <th className="relative px-6 py-4">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-black/5">
-                {latestSubmissions.map((submission) => (
-                  <tr key={submission.id} className="hover:bg-black/5 transition-colors group">
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col">
-                        <span className="text-sm font-semibold text-black group-hover:text-[#061E26] transition-colors">
-                          {submission.title}
-                        </span>
-                        {submission.description && (
-                          <span className="text-sm text-black/50 truncate max-w-xs mt-1">
-                            {submission.description}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <StatusBadge status={submission.status} size="sm" />
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-black/50">
-                      {new Date(submission.updated_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <Link
-                        href={`/submissions/${submission.id}`}
-                        className="inline-flex items-center gap-1 text-[#061E26] hover:text-black font-semibold transition-colors"
-                      >
-                        View
-                        <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {!loading && !error && latestSubmissions.length === 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-black/10 p-6 mb-6">
-          <p className="text-sm text-black/60 text-center">No recent submissions</p>
-        </div>
-      )}
-
-      {submissions.length > 3 && (
-        <div className="mt-6 text-center">
-          <Link
-            href="/submissions"
-            className="inline-flex items-center gap-2 px-6 py-3 text-sm font-semibold text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg transition-all duration-200"
-          >
-            View All Submissions ({submissions.length})
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </Link>
-        </div>
-      )}
-
-      <div className="mb-6 mt-8">
-        <h2 className="text-2xl font-bold text-black">All Submissions</h2>
-        <p className="mt-2 text-base text-black/70">
-          Review submissions, provide feedback, and approve completed work
-        </p>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm border border-black/10 p-3 mb-6">
-        <div className="flex flex-col sm:flex-row gap-2.5">
-          <div className="flex-1">
-            <label htmlFor="search" className="sr-only">
-              Search submissions
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg className="h-5 w-5 text-black/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              </div>
-              <input
-                type="text"
-                id="search"
-                placeholder="Search by title..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="block w-full pl-10 pr-3 py-2.5 border border-black/20 rounded-lg text-sm placeholder-black/40 focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-[#061E26] transition-shadow"
-              />
+      {loading && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="bg-white rounded-xl shadow-sm border border-black/10 p-5 animate-pulse">
+              <div className="h-4 bg-black/10 rounded w-3/4 mb-3"></div>
+              <div className="h-3 bg-black/10 rounded w-1/2 mb-4"></div>
+              <div className="h-6 bg-black/10 rounded w-20"></div>
             </div>
-          </div>
-          <div className="sm:w-48">
-            <label htmlFor="status" className="sr-only">
-              Filter by status
-            </label>
-            <select
-              id="status"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as SubmissionStatus | '')}
-              className="block w-full px-3 py-2.5 border border-black/20 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-[#061E26] transition-shadow"
-            >
-              {statusOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          ))}
         </div>
-      </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-5 py-4 rounded-xl mb-6 shadow-sm">
@@ -311,108 +167,31 @@ export default function ReviewerDashboardPage() {
         </div>
       )}
 
-      {loading && (
-        <div className="bg-white rounded-xl shadow-sm border border-black/10 p-6">
-          <TableSkeleton rows={5} />
+      {!loading && !error && recentSubmissions.length === 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-black/10 p-8 text-center mb-6">
+          <svg className="mx-auto h-12 w-12 text-black/20 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+          <p className="text-black/60 font-medium">No submissions to review yet</p>
+          <p className="text-sm text-black/40 mt-1">Submissions will appear here when they are created</p>
         </div>
       )}
 
-      {!loading && !error && filteredSubmissions.length === 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200/50">
-          <EmptyState
-            title="No submissions found"
-            description={
-              searchQuery || statusFilter
-                ? 'Try adjusting your filters'
-                : 'No submissions to review yet'
-            }
-            icon={<VideoIcon />}
-          />
-        </div>
-      )}
-
-      {!loading && !error && filteredSubmissions.length > 0 && (
-        <>
-          {/* Desktop table view */}
-          <div className="hidden md:block bg-white rounded-xl shadow-sm border border-slate-200/50 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200">
-              <thead className="bg-gradient-to-r from-slate-50 to-slate-100">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                    Title
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                    Created
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                    Updated
-                  </th>
-                  <th className="relative px-6 py-4">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-slate-100">
-                {paginatedSubmissions.map((submission) => (
-                  <tr key={submission.id} className="hover:bg-slate-50/50 transition-colors group">
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col">
-                        <span className="text-sm font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
-                          {submission.title}
-                        </span>
-                        {submission.description && (
-                          <span className="text-sm text-slate-500 truncate max-w-xs mt-1">
-                            {submission.description}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <StatusBadge status={submission.status} size="sm" />
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
-                      {new Date(submission.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
-                      {new Date(submission.updated_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <Link
-                        href={`/submissions/${submission.id}`}
-                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-semibold transition-colors"
-                      >
-                        View
-                        <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Mobile card view */}
-        <div className="md:hidden space-y-3">
-          {paginatedSubmissions.map((submission) => (
+      {!loading && !error && recentSubmissions.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          {recentSubmissions.map((submission) => (
             <Link
               key={submission.id}
               href={`/submissions/${submission.id}`}
-              className="block bg-white rounded-xl shadow-sm border border-slate-200/50 p-5 hover:shadow-lg hover:border-blue-200 transition-all duration-200"
+              className="block bg-white rounded-xl shadow-sm border border-black/10 p-5 hover:shadow-lg hover:border-[#061E26]/30 transition-all duration-200 group"
             >
               <div className="space-y-3">
                 <div>
-                  <h3 className="text-base font-semibold text-slate-900 mb-1">
+                  <h3 className="text-base font-semibold text-black group-hover:text-[#061E26] transition-colors truncate">
                     {submission.title}
                   </h3>
                   {submission.description && (
-                    <p className="text-sm text-slate-500 line-clamp-2">
+                    <p className="text-sm text-black/50 line-clamp-2 mt-1">
                       {submission.description}
                     </p>
                   )}
@@ -420,16 +199,15 @@ export default function ReviewerDashboardPage() {
 
                 <div className="flex items-center justify-between">
                   <StatusBadge status={submission.status} size="sm" />
-                  <span className="text-xs text-slate-400">
-                    {new Date(submission.created_at).toLocaleDateString()}
+                  <span className="text-xs text-black/40">
+                    {new Date(submission.updated_at).toLocaleDateString()}
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between text-xs text-slate-500 pt-3 border-t border-slate-100">
-                  <span>Updated: {new Date(submission.updated_at).toLocaleDateString()}</span>
-                  <span className="text-blue-600 font-semibold inline-flex items-center gap-1">
-                    View
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="flex items-center justify-end pt-2 border-t border-black/5">
+                  <span className="text-sm text-[#061E26] font-semibold inline-flex items-center gap-1 group-hover:gap-2 transition-all">
+                    Review submission
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </span>
@@ -438,77 +216,21 @@ export default function ReviewerDashboardPage() {
             </Link>
           ))}
         </div>
+      )}
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="mt-6 flex items-center justify-between bg-white px-4 py-3 rounded-lg border border-gray-200">
-            <div className="flex-1 flex justify-between sm:hidden">
-              <button
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                disabled={currentPage === 1}
-                className="relative inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Previous
-              </button>
-              <button
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                disabled={currentPage === totalPages}
-                className="relative ml-3 inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Next
-              </button>
-            </div>
-            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm text-gray-700">
-                  Showing <span className="font-medium">{startIndex + 1}</span> to{' '}
-                  <span className="font-medium">{Math.min(endIndex, filteredSubmissions.length)}</span> of{' '}
-                  <span className="font-medium">{filteredSubmissions.length}</span> results
-                </p>
-              </div>
-              <div>
-                <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                    disabled={currentPage === 1}
-                    className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span className="sr-only">Previous</span>
-                    <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                    <button
-                      key={page}
-                      onClick={() => setCurrentPage(page)}
-                      className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
-                        page === currentPage
-                          ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
-                          : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
-                      }`}
-                    >
-                      {page}
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                    disabled={currentPage === totalPages}
-                    className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span className="sr-only">Next</span>
-                    <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                </nav>
-              </div>
-            </div>
-          </div>
-        )}
-      </>
+      {submissions.length > 3 && (
+        <div className="text-center">
+          <Link
+            href="/reviewer/review"
+            className="inline-flex items-center gap-2 px-6 py-3 text-sm font-semibold text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg transition-all duration-200"
+          >
+            View all {submissions.length} submissions
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
+        </div>
       )}
     </div>
   );
 }
-

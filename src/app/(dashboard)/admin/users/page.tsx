@@ -192,7 +192,7 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="w-full">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
           <h1 className="text-4xl font-bold tracking-tight text-black">User Management</h1>
@@ -384,7 +384,7 @@ export default function AdminUsersPage() {
                     Role
                   </th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
-                    Supabase UID
+                    User ID
                   </th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
                     Created
@@ -404,7 +404,7 @@ export default function AdminUsersPage() {
                       <RoleBadge role={u.role} />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-xs font-mono text-black/50 bg-black/5 px-2 py-1 rounded">{u.supabase_uid}</span>
+                      <span className="text-xs font-mono text-black/50 bg-black/5 px-2 py-1 rounded">{u.id}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-black/50">
                       {new Date(u.created_at).toLocaleDateString()}
@@ -414,14 +414,14 @@ export default function AdminUsersPage() {
                         <select
                           value={u.role}
                           onChange={(e) => handleRoleChange(u.id, e.target.value as UserRole)}
-                          disabled={updatingUserId === u.id || u.supabase_uid === user?.supabase_uid}
+                          disabled={updatingUserId === u.id || u.id === user?.id}
                           className="px-3 py-1.5 text-sm border border-black/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-[#061E26] disabled:opacity-50 disabled:cursor-not-allowed transition-shadow"
                         >
                           <option value="submitter">Submitter</option>
                           <option value="reviewer">Reviewer</option>
                           <option value="admin">Admin</option>
                         </select>
-                        {u.supabase_uid === user?.supabase_uid && (
+                        {u.id === user?.id && (
                           <span className="text-xs font-medium text-black/50 bg-black/5 px-2 py-1 rounded-full">(you)</span>
                         )}
                         {updatingUserId === u.id && (

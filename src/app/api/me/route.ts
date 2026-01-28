@@ -1,57 +1,34 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions, getUserById } from '@/lib/auth';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    // Create Supabase client the same way middleware does
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll();
-          },
-          setAll(cookiesToSet) {
-            // Can't set cookies in API routes, but that's OK
-          },
-        },
-      }
-    );
+    const session = await getServerSession(authOptions);
 
-    // Get user directly (same as middleware)
-    const { data: { user: supabaseUser }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !supabaseUser) {
+    if (!session?.user) {
       return NextResponse.json(
-        { error: authError?.message || 'Not authenticated' },
+        { error: 'Not authenticated' },
         { status: 401 }
       );
     }
 
-    // Get user from Airtable (simple approach)
-    const { getUserBySupabaseUid } = await import('@/lib/airtable');
-    const userData = await getUserBySupabaseUid(supabaseUser.id);
+    // Get full user data from database
+    const user = await getUserById(session.user.id);
 
-    if (!userData) {
+    if (!user) {
       return NextResponse.json(
-        { error: 'User not provisioned in Airtable' },
-        { status: 403 }
+        { error: 'User not found' },
+        { status: 404 }
       );
     }
 
-    const body = {
-      data: {
-        id: userData.id,
-        supabase_uid: userData.supabase_uid,
-        email: userData.email,
-        role: userData.role,
-        created_at: userData.created_at,
-      },
-    };
-    return NextResponse.json(body, {
-      headers: {
-        'Cache-Control': 'private, max-age=300',
+    return NextResponse.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        created_at: user.created_at,
       },
     });
   } catch (error) {

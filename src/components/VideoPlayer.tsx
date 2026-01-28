@@ -1,9 +1,32 @@
 'use client';
 
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 
 function isGoogleDriveEmbed(url: string): boolean {
   return url.includes('drive.google.com');
+}
+
+/** Extract Google Drive file ID from various URL formats */
+function extractDriveFileId(url: string): string | null {
+  // Format: /file/d/{fileId}/...
+  const match1 = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if (match1) return match1[1];
+  
+  // Format: ?id={fileId}
+  const match2 = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (match2) return match2[1];
+  
+  // Format: /open?id={fileId}
+  const match3 = url.match(/\/open\?id=([a-zA-Z0-9_-]+)/);
+  if (match3) return match3[1];
+  
+  return null;
+}
+
+/** Convert Drive file ID to proxied video URL (bypasses CORS) */
+function getDriveDirectUrl(fileId: string): string {
+  // Use our proxy endpoint to stream the video
+  return `/api/proxy-video?fileId=${fileId}`;
 }
 
 export interface FrameCapturePayload {
@@ -17,6 +40,8 @@ interface VideoPlayerProps {
   onTimestampCapture?: (timestamp: number) => void;
   onCaptureRequest?: () => void;
   onFrameCapture?: (payload: FrameCapturePayload) => void;
+  /** Auto-capture frame when video is paused (works in direct mode) */
+  autoCaptureOnPause?: boolean;
 }
 
 export function VideoPlayer({
@@ -25,11 +50,23 @@ export function VideoPlayer({
   onTimestampCapture,
   onCaptureRequest,
   onFrameCapture,
+  autoCaptureOnPause = false,
 }: VideoPlayerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [currentTime, setCurrentTime] = useState<number | null>(null);
-  const useNativeVideo = !isGoogleDriveEmbed(embedUrl);
+  const [showCaptureIndicator, setShowCaptureIndicator] = useState(false);
+  
+  const isGoogleDrive = isGoogleDriveEmbed(embedUrl);
+  const driveFileId = isGoogleDrive ? extractDriveFileId(embedUrl) : null;
+  
+  // Direct video mode state (for Google Drive)
+  const [useDirectMode, setUseDirectMode] = useState(false);
+  const [directModeError, setDirectModeError] = useState(false);
+  const [directModeLoading, setDirectModeLoading] = useState(false);
+  
+  // Determine if we should use native video element
+  const useNativeVideo = !isGoogleDrive || (useDirectMode && !directModeError);
 
   // Iframe: listen for postMessage time (Google Drive)
   useEffect(() => {
@@ -148,21 +185,136 @@ export function VideoPlayer({
     };
   }, [useNativeVideo, onFrameCapture]);
 
+  // Auto-capture frame when video is paused (native video only)
+  useEffect(() => {
+    if (!useNativeVideo || !autoCaptureOnPause || !onFrameCapture) return;
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handlePause = () => {
+      // Small delay to ensure video has fully paused
+      setTimeout(() => {
+        if (video.paused && video.readyState >= 2) {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+
+          ctx.drawImage(video, 0, 0);
+          const imageDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          const timestamp_seconds = Math.floor(video.currentTime);
+          onFrameCapture({ timestamp_seconds, imageDataUrl });
+          
+          // Show capture indicator
+          setShowCaptureIndicator(true);
+          setTimeout(() => setShowCaptureIndicator(false), 1500);
+        }
+      }, 100);
+    };
+
+    video.addEventListener('pause', handlePause);
+    return () => video.removeEventListener('pause', handlePause);
+  }, [useNativeVideo, autoCaptureOnPause, onFrameCapture]);
+
+  // Handle direct mode video errors
+  const handleVideoError = useCallback(() => {
+    if (isGoogleDrive && useDirectMode) {
+      setDirectModeError(true);
+      setDirectModeLoading(false);
+    }
+  }, [isGoogleDrive, useDirectMode]);
+
+  const handleVideoCanPlay = useCallback(() => {
+    setDirectModeLoading(false);
+    setDirectModeError(false);
+  }, []);
+
+  // Toggle direct mode
+  const toggleDirectMode = useCallback(() => {
+    if (!driveFileId) return;
+    
+    if (useDirectMode) {
+      // Switch back to embed mode
+      setUseDirectMode(false);
+      setDirectModeError(false);
+    } else {
+      // Try direct mode
+      setUseDirectMode(true);
+      setDirectModeLoading(true);
+      setDirectModeError(false);
+    }
+  }, [driveFileId, useDirectMode]);
+
+  // Get the video source URL
+  const videoSrc = isGoogleDrive && useDirectMode && driveFileId 
+    ? getDriveDirectUrl(driveFileId) 
+    : embedUrl;
+
+  // Render native video (for non-Drive URLs or Drive in direct mode)
   if (useNativeVideo) {
     return (
       <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
         <video
           ref={videoRef}
-          src={embedUrl}
+          src={videoSrc}
           title={title}
           className="absolute inset-0 w-full h-full rounded-lg bg-black"
           controls
           playsInline
+          onError={handleVideoError}
+          onCanPlay={handleVideoCanPlay}
         />
+        
+        {/* Loading indicator for direct mode */}
+        {directModeLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+            <div className="text-white text-center">
+              <svg className="animate-spin h-8 w-8 mx-auto mb-2" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <span className="text-sm">Loading direct video...</span>
+            </div>
+          </div>
+        )}
+        
+        {/* Auto-capture indicator */}
+        {showCaptureIndicator && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="bg-black/70 text-white px-4 py-2 rounded-lg flex items-center gap-2 animate-pulse">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <span className="text-sm font-medium">Frame Captured</span>
+            </div>
+          </div>
+        )}
+        
+        {/* Mode indicator for Google Drive in direct mode */}
+        {isGoogleDrive && useDirectMode && !directModeLoading && (
+          <div className="absolute top-2 left-2 flex items-center gap-2">
+            <span className="bg-green-500/90 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              Auto-capture ON
+            </span>
+            <button
+              onClick={toggleDirectMode}
+              className="bg-black/50 hover:bg-black/70 text-white text-xs px-2 py-1 rounded-full transition-colors"
+            >
+              Switch to Embed
+            </button>
+          </div>
+        )}
       </div>
     );
   }
 
+  // Render iframe embed (for Google Drive when direct mode is off or failed)
   return (
     <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
       <iframe
@@ -173,6 +325,39 @@ export function VideoPlayer({
         allow="autoplay; encrypted-media"
         allowFullScreen
       />
+      
+      {/* Toggle to try direct mode for Google Drive */}
+      {isGoogleDrive && driveFileId && (
+        <div className="absolute top-2 left-2 flex flex-col gap-2">
+          {directModeError ? (
+            <div className="group relative">
+              <span className="bg-amber-500/90 text-white text-xs px-2 py-1 rounded-full cursor-help flex items-center gap-1">
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Use Capture Frame button
+              </span>
+              <div className="absolute left-0 top-full mt-1 w-64 p-2 bg-gray-900 text-white text-xs rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                <p className="font-medium mb-1">Auto-capture not available for this video</p>
+                <p className="text-gray-300">To enable: In Google Drive, share the file as &quot;Anyone with the link&quot; and allow downloading.</p>
+                <p className="text-gray-300 mt-1">For now, use the &quot;Capture Frame&quot; button below the video to take screenshots.</p>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={toggleDirectMode}
+              className="bg-blue-500/90 hover:bg-blue-600/90 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-colors shadow-lg"
+              title="Enable auto-capture on pause (requires publicly shared video with downloads enabled)"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Enable Auto-Capture
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

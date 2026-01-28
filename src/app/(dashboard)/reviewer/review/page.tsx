@@ -3,23 +3,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { StatusBadge, EmptyState, VideoIcon, TableSkeleton } from '@/components';
-import { useAuth } from '@/contexts/AuthContext';
 import { useDataCache } from '@/contexts/DataCacheContext';
 import type { Submission, SubmissionStatus } from '@/types';
 
-export default function MySubmissionsPage() {
-  const { user } = useAuth();
+export default function ReviewPage() {
   const { getCache, setCache } = useDataCache();
   
-  const getCacheKey = (filter: string) => {
-    return `submissions:submitter:${user?.id || 'unknown'}:${filter || 'all'}`;
-  };
-  
   const [submissions, setSubmissions] = useState<Submission[]>(() => {
-    return getCache<Submission[]>(getCacheKey('all')) || [];
+    return getCache<Submission[]>(`submissions:reviewer:all`) || [];
   });
   const [loading, setLoading] = useState(() => {
-    return !getCache<Submission[]>(getCacheKey('all'));
+    return !getCache<Submission[]>(`submissions:reviewer:all`);
   });
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<SubmissionStatus | ''>('');
@@ -37,7 +31,7 @@ export default function MySubmissionsPage() {
         params.set('status', statusFilter);
       }
       
-      const cacheKey = `submissions:submitter:${user?.id || 'unknown'}:${statusFilter || 'all'}`;
+      const cacheKey = `submissions:reviewer:${statusFilter || 'all'}`;
       
       const cachedData = getCache<Submission[]>(cacheKey);
       if (cachedData && showLoading) {
@@ -67,12 +61,10 @@ export default function MySubmissionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, user?.id, getCache, setCache]);
+  }, [statusFilter, getCache, setCache]);
 
   useEffect(() => {
-    if (!user) return;
-    
-    const cacheKey = `submissions:submitter:${user.id}:${statusFilter || 'all'}`;
+    const cacheKey = `submissions:reviewer:${statusFilter || 'all'}`;
     const cachedData = getCache<Submission[]>(cacheKey);
     
     if (cachedData) {
@@ -83,7 +75,7 @@ export default function MySubmissionsPage() {
       setLoading(true);
       fetchSubmissions(true);
     }
-  }, [statusFilter, user, fetchSubmissions, getCache]);
+  }, [statusFilter, fetchSubmissions, getCache]);
 
   const filteredSubmissions = submissions.filter((submission) =>
     submission.title.toLowerCase().includes(searchQuery.toLowerCase())
@@ -100,7 +92,7 @@ export default function MySubmissionsPage() {
 
   const statusOptions: { value: SubmissionStatus | ''; label: string }[] = [
     { value: '', label: 'All Status' },
-    { value: 'pending', label: 'Pending' },
+    { value: 'pending', label: 'Pending Review' },
     { value: 'reviewing', label: 'In Review' },
     { value: 'completed', label: 'Completed' },
   ];
@@ -108,23 +100,14 @@ export default function MySubmissionsPage() {
   return (
     <div className="w-full">
       <div className="mb-8">
-        <h1 className="text-4xl font-bold tracking-tight text-black">All Submissions</h1>
+        <h1 className="text-4xl font-bold tracking-tight text-black">Review Submissions</h1>
         <p className="mt-3 text-lg font-light tracking-wide text-black/70">
-          Search, filter, and manage your video submissions.
+          Search, filter, and review all video submissions.
         </p>
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <h2 className="text-2xl font-bold text-black">Submissions</h2>
-        <Link
-          href="/submissions/new"
-          className="group relative inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-[#061E26] to-black text-white rounded-xl font-semibold shadow-lg shadow-[#061E26]/30 hover:shadow-xl hover:shadow-[#061E26]/40 hover:scale-105 transition-all duration-200"
-        >
-          <svg className="-ml-1 h-5 w-5 group-hover:rotate-90 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          New Submission
-        </Link>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-black/10 p-3 mb-6">
@@ -193,22 +176,9 @@ export default function MySubmissionsPage() {
             description={
               searchQuery || statusFilter
                 ? 'Try adjusting your filters'
-                : 'Create your first submission to get started'
+                : 'No submissions to review yet'
             }
             icon={<VideoIcon />}
-            action={
-              !searchQuery && !statusFilter ? (
-                <Link
-                  href="/submissions/new"
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-[#061E26] to-black text-white rounded-xl font-semibold shadow-lg shadow-[#061E26]/30 hover:shadow-xl hover:scale-105 transition-all duration-200"
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                  Create Submission
-                </Link>
-              ) : undefined
-            }
           />
         </div>
       )}
@@ -266,7 +236,7 @@ export default function MySubmissionsPage() {
                           href={`/submissions/${submission.id}`}
                           className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-semibold transition-colors"
                         >
-                          View
+                          Review
                           <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                           </svg>
@@ -308,7 +278,7 @@ export default function MySubmissionsPage() {
                   <div className="flex items-center justify-between text-xs text-slate-500 pt-3 border-t border-slate-100">
                     <span>Updated: {new Date(submission.updated_at).toLocaleDateString()}</span>
                     <span className="text-blue-600 font-semibold inline-flex items-center gap-1">
-                      View
+                      Review
                       <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>

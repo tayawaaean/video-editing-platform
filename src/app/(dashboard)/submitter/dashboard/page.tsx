@@ -13,7 +13,7 @@ export default function SubmitterDashboardPage() {
   
   // Initialize with cache if available
   const getCacheKey = (filter: string) => {
-    return `submissions:submitter:${user?.supabase_uid || 'unknown'}:${filter || 'all'}`;
+    return `submissions:submitter:${user?.id || 'unknown'}:${filter || 'all'}`;
   };
   
   const [submissions, setSubmissions] = useState<Submission[]>(() => {
@@ -30,7 +30,7 @@ export default function SubmitterDashboardPage() {
         setLoading(true);
       }
       
-      const cacheKey = `submissions:submitter:${user?.supabase_uid || 'unknown'}:all`;
+      const cacheKey = `submissions:submitter:${user?.id || 'unknown'}:all`;
       
       // Check cache first
       const cachedData = getCache<Submission[]>(cacheKey);
@@ -62,12 +62,12 @@ export default function SubmitterDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [user?.supabase_uid, getCache, setCache]);
+  }, [user?.id, getCache, setCache]);
 
   useEffect(() => {
     if (!user) return;
     
-    const cacheKey = `submissions:submitter:${user.supabase_uid}:all`;
+    const cacheKey = `submissions:submitter:${user.id}:all`;
     const cachedData = getCache<Submission[]>(cacheKey);
     
     if (cachedData) {
@@ -99,11 +99,11 @@ export default function SubmitterDashboardPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="w-full">
       <div className="mb-8">
-        <h1 className="text-4xl font-bold tracking-tight text-black">My Submissions</h1>
+        <h1 className="text-4xl font-bold tracking-tight text-black">Dashboard</h1>
         <p className="mt-3 text-lg font-light tracking-wide text-black/70">
-          View and manage your video submissions
+          Overview of your submissions and activity
         </p>
       </div>
 
@@ -152,13 +152,13 @@ export default function SubmitterDashboardPage() {
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <h2 className="text-2xl font-bold text-black">Latest Updates</h2>
+        <h2 className="text-2xl font-bold text-black">Recent submissions</h2>
         <div className="flex gap-3">
           <Link
             href="/submissions"
             className="group relative inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg transition-all duration-200"
           >
-            View All
+            View all submissions
             <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
@@ -170,84 +170,60 @@ export default function SubmitterDashboardPage() {
             <svg className="-ml-1 h-5 w-5 group-hover:rotate-90 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            New Submission
+            New submission
           </Link>
         </div>
       </div>
 
       {!loading && !error && latestSubmissions.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-black/10 overflow-hidden mb-6">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-black/10">
-              <thead className="bg-gradient-to-r from-white to-black/5">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
-                    Title
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
-                    Updated
-                  </th>
-                  <th className="relative px-6 py-4">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-black/5">
-                {latestSubmissions.map((submission) => (
-                  <tr key={submission.id} className="hover:bg-black/5 transition-colors group">
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col">
-                        <span className="text-sm font-semibold text-black group-hover:text-[#061E26] transition-colors">
-                          {submission.title}
-                        </span>
-                        {submission.description && (
-                          <span className="text-sm text-black/50 truncate max-w-xs mt-1">
-                            {submission.description}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <StatusBadge status={submission.status} size="sm" />
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-black/50">
-                      {new Date(submission.updated_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <Link
-                        href={`/submissions/${submission.id}`}
-                        className="inline-flex items-center gap-1 text-[#061E26] hover:text-black font-semibold transition-colors"
-                      >
-                        View
-                        <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+          {latestSubmissions.map((submission) => (
+            <Link
+              key={submission.id}
+              href={`/submissions/${submission.id}`}
+              className="block bg-white rounded-xl shadow-sm border border-black/10 p-5 hover:shadow-md hover:border-[#061E26]/30 transition-all"
+            >
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <h3 className="text-base font-semibold text-black line-clamp-2">{submission.title}</h3>
+                <StatusBadge status={submission.status} size="sm" />
+              </div>
+              {submission.description && (
+                <p className="text-sm text-black/60 line-clamp-2 mb-3">{submission.description}</p>
+              )}
+              <p className="text-xs text-black/50">Updated {new Date(submission.updated_at).toLocaleDateString()}</p>
+              <span className="inline-flex items-center gap-1 text-sm font-medium text-[#061E26] mt-2">
+                View submission
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </span>
+            </Link>
+          ))}
         </div>
       )}
 
       {!loading && !error && latestSubmissions.length === 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-black/10 p-6 mb-6">
-          <p className="text-sm text-black/60 text-center">No recent submissions</p>
+        <div className="bg-white rounded-xl shadow-sm border border-black/10 p-8 mb-6 text-center">
+          <p className="text-black/60 mb-4">No submissions yet</p>
+          <Link
+            href="/submissions/new"
+            className="inline-flex items-center gap-2 px-6 py-3 text-sm font-semibold text-white bg-gradient-to-r from-[#061E26] to-black rounded-xl hover:shadow-lg transition-all"
+          >
+            Create your first submission
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
         </div>
       )}
 
       {submissions.length > 3 && (
-        <div className="mt-6 text-center">
+        <div className="mt-4">
           <Link
             href="/submissions"
-            className="inline-flex items-center gap-2 px-6 py-3 text-sm font-semibold text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg transition-all duration-200"
+            className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg transition-colors"
           >
-            View All Submissions ({submissions.length})
+            View all {submissions.length} submissions
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>

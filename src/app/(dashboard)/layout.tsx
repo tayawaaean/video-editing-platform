@@ -1,14 +1,15 @@
 'use client';
 
-import { AuthProvider } from '@/contexts/AuthContext';
-import { SidebarProvider } from '@/contexts/SidebarContext';
-import { DataCacheProvider } from '@/contexts/DataCacheContext';
 import { Navbar } from '@/components';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSidebar } from '@/contexts/SidebarContext';
 import { PageLoading } from '@/components';
 
-function LayoutContent({ children }: { children: React.ReactNode }) {
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const { loading, error, user } = useAuth();
   const { isCollapsed } = useSidebar();
 
@@ -52,21 +53,5 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
         <div className="p-4 sm:p-6 lg:p-8">{children}</div>
       </main>
     </div>
-  );
-}
-
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <DataCacheProvider>
-      <AuthProvider>
-        <SidebarProvider>
-          <LayoutContent>{children}</LayoutContent>
-        </SidebarProvider>
-      </AuthProvider>
-    </DataCacheProvider>
   );
 }

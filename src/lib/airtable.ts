@@ -361,30 +361,71 @@ export async function getCommentsBySubmission(submissionId: string): Promise<Com
   const data = await response.json();
   const records: AirtableRecord<CommentFields>[] = data.records;
 
-  return records.map(record => ({
-    id: record.id,
-    submission_id: record.fields.submission_id,
-    user_uid: record.fields.user_uid,
-    timestamp_seconds: record.fields.timestamp_seconds,
-    content: record.fields.content || '',
-    parent_comment_id: record.fields.parent_comment_id,
-    attachment_url: record.fields.attachment_url,
-    created_at: record.fields.created_at,
-  }));
+  return records.map(record => {
+    // Airtable Attachment fields return an array of objects: [{ url, filename, size, type }]
+    // Extract the URL from the first attachment if present
+    let attachmentUrl: string | undefined;
+    const attachmentField = record.fields.attachment_url;
+    if (Array.isArray(attachmentField) && attachmentField.length > 0) {
+      attachmentUrl = attachmentField[0]?.url;
+    } else if (typeof attachmentField === 'string') {
+      // Fallback for string format (shouldn't happen but handle gracefully)
+      attachmentUrl = attachmentField;
+    }
+
+    // Airtable "Link to another record" fields return an array of record IDs
+    // Extract the first ID if present
+    let parentCommentId: string | undefined;
+    const parentField = record.fields.parent_comment_id;
+    if (Array.isArray(parentField) && parentField.length > 0) {
+      parentCommentId = parentField[0];
+    } else if (typeof parentField === 'string') {
+      parentCommentId = parentField;
+    }
+
+    return {
+      id: record.id,
+      submission_id: record.fields.submission_id,
+      user_uid: record.fields.user_uid,
+      timestamp_seconds: record.fields.timestamp_seconds,
+      content: record.fields.content || '',
+      parent_comment_id: parentCommentId,
+      attachment_url: attachmentUrl,
+      created_at: record.fields.created_at,
+    };
+  });
 }
 
 export async function createComment(comment: Omit<CommentFields, 'created_at'>): Promise<Comment> {
   const url = `${BASE_URL}/${encodeURIComponent(AIRTABLE_TABLE_FEEDBACK)}`;
 
+  // Build fields object
+  const fields: Record<string, unknown> = {
+    submission_id: comment.submission_id,
+    user_uid: comment.user_uid,
+    timestamp_seconds: comment.timestamp_seconds,
+    content: comment.content,
+    created_at: new Date().toISOString().split('T')[0],
+  };
+
+  // Only include parent_comment_id if it exists
+  // If the field is a "Link to another record" type in Airtable, it expects an array
+  if (comment.parent_comment_id) {
+    // Try array format first (for linked record fields)
+    fields.parent_comment_id = [comment.parent_comment_id];
+  }
+
+  // Format attachment for Airtable's Attachment field type
+  // Airtable expects an array of objects: [{ url: "https://..." }]
+  // The URL must be publicly accessible - Airtable will fetch and store the file
+  if (comment.attachment_url && comment.attachment_url.startsWith('http')) {
+    fields.attachment_url = [{ url: comment.attachment_url }];
+  }
+
   const response = await fetchWithRetry(url, {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({
-      fields: {
-        ...comment,
-        created_at: new Date().toISOString().split('T')[0],
-      },
-    }),
+    body: JSON.stringify({ fields }),
   });
 
   if (!response.ok) {
@@ -399,14 +440,33 @@ export async function createComment(comment: Omit<CommentFields, 'created_at'>):
   }
 
   const record: AirtableRecord<CommentFields> = await response.json();
+
+  // Extract URL from Airtable's attachment array format
+  let attachmentUrl: string | undefined;
+  const attachmentField = record.fields.attachment_url;
+  if (Array.isArray(attachmentField) && attachmentField.length > 0) {
+    attachmentUrl = attachmentField[0]?.url;
+  } else if (typeof attachmentField === 'string') {
+    attachmentUrl = attachmentField;
+  }
+
+  // Extract parent_comment_id from linked record array format
+  let parentCommentId: string | undefined;
+  const parentField = record.fields.parent_comment_id;
+  if (Array.isArray(parentField) && parentField.length > 0) {
+    parentCommentId = parentField[0];
+  } else if (typeof parentField === 'string') {
+    parentCommentId = parentField;
+  }
+
   return {
     id: record.id,
     submission_id: record.fields.submission_id,
     user_uid: record.fields.user_uid,
     timestamp_seconds: record.fields.timestamp_seconds,
     content: record.fields.content || '',
-    parent_comment_id: record.fields.parent_comment_id,
-    attachment_url: record.fields.attachment_url,
+    parent_comment_id: parentCommentId,
+    attachment_url: attachmentUrl,
     created_at: record.fields.created_at,
   };
 }
@@ -414,10 +474,11 @@ export async function createComment(comment: Omit<CommentFields, 'created_at'>):
 // ==================== HELPERS ====================
 
 export async function getUserEmailMap(userUids: string[]): Promise<Record<string, string>> {
-  if (userUids.length === 0) return {};
+  const validUids = userUids.filter((uid): uid is string => typeof uid === 'string' && uid.length > 0);
+  if (validUids.length === 0) return {};
   
-  const uniqueUids = [...new Set(userUids)];
-  const orConditions = uniqueUids.map(uid => `{supabase_uid}="${uid}"`).join(',');
+  const uniqueUids = [...new Set(validUids)];
+  const orConditions = uniqueUids.map(uid => `{supabase_uid}="${String(uid).replace(/"/g, '')}"`).join(',');
   const filterFormula = encodeURIComponent(`OR(${orConditions})`);
   const url = `${BASE_URL}/${AIRTABLE_TABLE_USERS}?filterByFormula=${filterFormula}`;
   
