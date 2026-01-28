@@ -86,6 +86,16 @@ export function parseGoogleDriveUrl(url: string): GoogleDriveParseResult {
 }
 
 /**
+ * Returns a direct-download-style URL for a Google Drive file from an embed or view URL.
+ * Used by server-side frame extraction (ffmpeg). May not work for very large files or restricted links.
+ */
+export function getDriveDirectDownloadUrl(embedOrViewUrl: string): string | null {
+  const result = parseGoogleDriveUrl(embedOrViewUrl);
+  if (!result.success || !result.fileId) return null;
+  return `https://drive.google.com/uc?export=download&id=${result.fileId}`;
+}
+
+/**
  * Validates a Google Drive URL and returns the embed URL
  */
 export function getEmbedUrl(googleDriveUrl: string): string | null {

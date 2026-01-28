@@ -1,12 +1,12 @@
 import { ReactNode } from 'react';
 
-export type Tone = 'blue' | 'amber' | 'fuchsia' | 'emerald';
+export type Tone = 'primary' | 'accent' | 'secondary' | 'dark';
 
 export function StatCard({
   label,
   value,
   icon,
-  tone = 'blue',
+  tone = 'primary',
 }: {
   label: string;
   value: ReactNode;
@@ -14,22 +14,22 @@ export function StatCard({
   tone?: Tone;
 }) {
   const toneMap: Record<Tone, { bg: string; ring: string }> = {
-    blue: { bg: 'from-blue-500 to-indigo-600', ring: 'ring-white/40' },
-    amber: { bg: 'from-amber-500 to-orange-600', ring: 'ring-white/40' },
-    fuchsia: { bg: 'from-fuchsia-500 to-pink-600', ring: 'ring-white/40' },
-    emerald: { bg: 'from-emerald-500 to-teal-600', ring: 'ring-white/40' },
+    primary: { bg: 'from-[#061E26] to-black', ring: 'ring-white/40' },
+    accent: { bg: 'from-[#BA836B] to-[#061E26]', ring: 'ring-white/40' },
+    secondary: { bg: 'from-black to-[#061E26]', ring: 'ring-white/40' },
+    dark: { bg: 'from-[#061E26] to-[#BA836B]', ring: 'ring-white/40' },
   };
 
   const t = toneMap[tone];
 
   return (
     <div
-      className="group relative overflow-hidden rounded-2xl bg-white p-6 border border-slate-200/60 ring-1 ring-black/5 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200"
+      className="group relative overflow-hidden rounded-2xl bg-white p-6 border border-black/10 ring-1 ring-black/5 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200"
     >
       <div className="relative flex items-center justify-between">
         <div>
-          <div className="text-sm font-medium text-slate-600">{label}</div>
-          <div className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">{value}</div>
+          <div className="text-sm font-medium text-black/60">{label}</div>
+          <div className="mt-2 text-3xl font-semibold tracking-tight text-black">{value}</div>
         </div>
         <div className="relative">
           <div
@@ -37,7 +37,7 @@ export function StatCard({
           >
             {icon}
           </div>
-          <div className="pointer-events-none absolute -inset-2 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-b from-transparent to-slate-100/50" />
+          <div className="pointer-events-none absolute -inset-2 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-b from-transparent to-black/5" />
         </div>
       </div>
     </div>

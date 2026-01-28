@@ -1,7 +1,7 @@
 // Development mode utilities
 // When NEXT_PUBLIC_DEV_MODE=true or NEXT_ENV=development, bypass real auth and use mock users
 
-import type { User, Submission, Comment, Annotation } from '@/types';
+import type { User, Submission, Comment } from '@/types';
 
 // Check for explicit dev mode flag first, then fall back to environment checks
 export const DEV_MODE = 
@@ -72,7 +72,7 @@ export const DEV_SUBMISSIONS: Submission[] = [
   },
 ];
 
-// Mock comments
+// Mock feedback (comments) for development
 export const DEV_COMMENTS: Comment[] = [
   {
     id: 'dev-comment-001',
@@ -100,28 +100,6 @@ export const DEV_COMMENTS: Comment[] = [
     user_email: 'admin@example.com',
     timestamp_seconds: 120,
     content: 'Great explanation of the dashboard features!',
-    created_at: '2024-01-13',
-  },
-];
-
-// Mock annotations
-export const DEV_ANNOTATIONS: Annotation[] = [
-  {
-    id: 'dev-annotation-001',
-    submission_id: 'dev-sub-001',
-    reviewer_uid: 'dev-reviewer-uid',
-    reviewer_email: 'reviewer@example.com',
-    timestamp_seconds: 45,
-    note: 'Audio levels drop here - needs normalization',
-    created_at: '2024-01-16',
-  },
-  {
-    id: 'dev-annotation-002',
-    submission_id: 'dev-sub-002',
-    reviewer_uid: 'dev-admin-uid',
-    reviewer_email: 'admin@example.com',
-    timestamp_seconds: 90,
-    note: 'Consider adding captions for accessibility',
     created_at: '2024-01-13',
   },
 ];

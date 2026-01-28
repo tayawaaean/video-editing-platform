@@ -9,8 +9,6 @@ import type {
   SubmissionFields,
   Comment,
   CommentFields,
-  Annotation,
-  AnnotationFields,
   AirtableRecord,
 } from '@/types';
 
@@ -18,8 +16,7 @@ const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY!;
 const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID!;
 const AIRTABLE_TABLE_USERS = process.env.AIRTABLE_TABLE_USERS || 'Users';
 const AIRTABLE_TABLE_SUBMISSIONS = process.env.AIRTABLE_TABLE_SUBMISSIONS || 'Submissions';
-const AIRTABLE_TABLE_COMMENTS = process.env.AIRTABLE_TABLE_COMMENTS || 'Comments';
-const AIRTABLE_TABLE_ANNOTATIONS = process.env.AIRTABLE_TABLE_ANNOTATIONS || 'Annotations';
+const AIRTABLE_TABLE_FEEDBACK = process.env.AIRTABLE_TABLE_FEEDBACK || 'Feedback';
 
 const BASE_URL = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}`;
 
@@ -333,41 +330,52 @@ export async function updateSubmissionStatus(
   };
 }
 
-// ==================== COMMENTS ====================
+// ==================== FEEDBACK (Comments) ====================
 
 export async function getCommentsBySubmission(submissionId: string): Promise<Comment[]> {
   const filterFormula = encodeURIComponent(`{submission_id}="${submissionId}"`);
-  const url = `${BASE_URL}/${AIRTABLE_TABLE_COMMENTS}?filterByFormula=${filterFormula}&sort%5B0%5D%5Bfield%5D=timestamp_seconds&sort%5B0%5D%5Bdirection%5D=asc&sort%5B1%5D%5Bfield%5D=created_at&sort%5B1%5D%5Bdirection%5D=asc`;
-  
+  const url = `${BASE_URL}/${encodeURIComponent(AIRTABLE_TABLE_FEEDBACK)}?filterByFormula=${filterFormula}&sort%5B0%5D%5Bfield%5D=timestamp_seconds&sort%5B0%5D%5Bdirection%5D=asc&sort%5B1%5D%5Bfield%5D=created_at&sort%5B1%5D%5Bdirection%5D=asc`;
+
   const response = await fetchWithRetry(url, {
     method: 'GET',
     headers: getHeaders(),
   });
-  
+
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Airtable error: ${JSON.stringify(error)}`);
+    const errorText = await response.text();
+    let errorData: { message?: string } = {};
+    try {
+      errorData = JSON.parse(errorText);
+    } catch {
+      errorData = { message: errorText };
+    }
+    if (response.status === 403) {
+      throw new Error(
+        `Airtable table "${AIRTABLE_TABLE_FEEDBACK}" not found or no access. ` +
+        `Verify the table exists and the API token has access. Original: ${JSON.stringify(errorData)}`
+      );
+    }
+    throw new Error(`Airtable error (${response.status}): ${JSON.stringify(errorData)}`);
   }
-  
+
   const data = await response.json();
   const records: AirtableRecord<CommentFields>[] = data.records;
-  
+
   return records.map(record => ({
     id: record.id,
     submission_id: record.fields.submission_id,
     user_uid: record.fields.user_uid,
     timestamp_seconds: record.fields.timestamp_seconds,
-    content: record.fields.content,
+    content: record.fields.content || '',
     parent_comment_id: record.fields.parent_comment_id,
+    attachment_url: record.fields.attachment_url,
     created_at: record.fields.created_at,
   }));
 }
 
-export async function createComment(
-  comment: Omit<CommentFields, 'created_at'>
-): Promise<Comment> {
-  const url = `${BASE_URL}/${AIRTABLE_TABLE_COMMENTS}`;
-  
+export async function createComment(comment: Omit<CommentFields, 'created_at'>): Promise<Comment> {
+  const url = `${BASE_URL}/${encodeURIComponent(AIRTABLE_TABLE_FEEDBACK)}`;
+
   const response = await fetchWithRetry(url, {
     method: 'POST',
     headers: getHeaders(),
@@ -378,81 +386,27 @@ export async function createComment(
       },
     }),
   });
-  
+
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Airtable error: ${JSON.stringify(error)}`);
+    const errorText = await response.text();
+    let errorData: { message?: string } = {};
+    try {
+      errorData = JSON.parse(errorText);
+    } catch {
+      errorData = { message: errorText };
+    }
+    throw new Error(`Airtable error (${response.status}): ${JSON.stringify(errorData)}`);
   }
-  
+
   const record: AirtableRecord<CommentFields> = await response.json();
   return {
     id: record.id,
     submission_id: record.fields.submission_id,
     user_uid: record.fields.user_uid,
     timestamp_seconds: record.fields.timestamp_seconds,
-    content: record.fields.content,
+    content: record.fields.content || '',
     parent_comment_id: record.fields.parent_comment_id,
-    created_at: record.fields.created_at,
-  };
-}
-
-// ==================== ANNOTATIONS ====================
-
-export async function getAnnotationsBySubmission(submissionId: string): Promise<Annotation[]> {
-  const filterFormula = encodeURIComponent(`{submission_id}="${submissionId}"`);
-  const url = `${BASE_URL}/${AIRTABLE_TABLE_ANNOTATIONS}?filterByFormula=${filterFormula}&sort%5B0%5D%5Bfield%5D=timestamp_seconds&sort%5B0%5D%5Bdirection%5D=asc`;
-  
-  const response = await fetchWithRetry(url, {
-    method: 'GET',
-    headers: getHeaders(),
-  });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Airtable error: ${JSON.stringify(error)}`);
-  }
-  
-  const data = await response.json();
-  const records: AirtableRecord<AnnotationFields>[] = data.records;
-  
-  return records.map(record => ({
-    id: record.id,
-    submission_id: record.fields.submission_id,
-    reviewer_uid: record.fields.reviewer_uid,
-    timestamp_seconds: record.fields.timestamp_seconds,
-    note: record.fields.note,
-    created_at: record.fields.created_at,
-  }));
-}
-
-export async function createAnnotation(
-  annotation: Omit<AnnotationFields, 'created_at'>
-): Promise<Annotation> {
-  const url = `${BASE_URL}/${AIRTABLE_TABLE_ANNOTATIONS}`;
-  
-  const response = await fetchWithRetry(url, {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify({
-      fields: {
-        ...annotation,
-        created_at: new Date().toISOString().split('T')[0],
-      },
-    }),
-  });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Airtable error: ${JSON.stringify(error)}`);
-  }
-  
-  const record: AirtableRecord<AnnotationFields> = await response.json();
-  return {
-    id: record.id,
-    submission_id: record.fields.submission_id,
-    reviewer_uid: record.fields.reviewer_uid,
-    timestamp_seconds: record.fields.timestamp_seconds,
-    note: record.fields.note,
+    attachment_url: record.fields.attachment_url,
     created_at: record.fields.created_at,
   };
 }

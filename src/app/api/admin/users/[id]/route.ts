@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth-helper';
-import { updateUserRole } from '@/lib/airtable';
+import { createClient } from '@/lib/supabase/server';
 import { updateUserRoleSchema } from '@/lib/validations';
 import { DEV_MODE, DEV_USERS } from '@/lib/dev-mode';
 import type { User } from '@/types';
@@ -48,8 +48,30 @@ export async function PATCH(
       return NextResponse.json({ data: devUsers[index] });
     }
 
-    // Update user role (id here is the Airtable record ID)
-    const updatedUser = await updateUserRole(id, role);
+    // Update user role in Supabase (id here is the UUID from users table)
+    const supabase = await createClient();
+    const { data: updatedUserData, error: updateError } = await supabase
+      .from('users')
+      .update({ role })
+      .eq('id', id)
+      .select('id, supabase_uid, email, role, created_at')
+      .single();
+
+    if (updateError || !updatedUserData) {
+      console.error('Error updating user role:', updateError);
+      return NextResponse.json(
+        { error: updateError?.message || 'User not found' },
+        { status: updateError?.code === 'PGRST116' ? 404 : 500 }
+      );
+    }
+
+    const updatedUser: User = {
+      id: updatedUserData.id,
+      supabase_uid: updatedUserData.supabase_uid,
+      email: updatedUserData.email,
+      role: updatedUserData.role as User['role'],
+      created_at: updatedUserData.created_at,
+    };
 
     return NextResponse.json({ data: updatedUser });
   } catch (error) {

@@ -4,27 +4,54 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { StatusBadge, EmptyState, VideoIcon, TableSkeleton, StatCard } from '@/components';
 import { useAuth } from '@/contexts/AuthContext';
+import { useDataCache } from '@/contexts/DataCacheContext';
 import type { Submission, SubmissionStatus } from '@/types';
 
 export default function ReviewerDashboardPage() {
   const { user } = useAuth();
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { getCache, setCache } = useDataCache();
+  
+  // Initialize with cache if available
+  const [submissions, setSubmissions] = useState<Submission[]>(() => {
+    return getCache<Submission[]>(`submissions:reviewer:all`) || [];
+  });
+  const [loading, setLoading] = useState(() => {
+    return !getCache<Submission[]>(`submissions:reviewer:all`);
+  });
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<SubmissionStatus | ''>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  const fetchSubmissions = useCallback(async () => {
+  const fetchSubmissions = useCallback(async (showLoading = true) => {
     try {
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
       const params = new URLSearchParams();
       if (statusFilter) {
         params.set('status', statusFilter);
       }
       
+      const cacheKey = `submissions:reviewer:${statusFilter || 'all'}`;
+      
+      // Check cache first
+      const cachedData = getCache<Submission[]>(cacheKey);
+      if (cachedData && showLoading) {
+        setSubmissions(cachedData);
+        setLoading(false);
+        setError(null);
+        // Still fetch in background to refresh
+        showLoading = false;
+      }
+      
       const response = await fetch(`/api/submissions?${params.toString()}`);
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(`Server error: ${text.substring(0, 200)}`);
+      }
       const data = await response.json();
 
       if (!response.ok) {
@@ -32,23 +59,45 @@ export default function ReviewerDashboardPage() {
       }
 
       setSubmissions(data.data);
+      setCache(cacheKey, data.data);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, getCache, setCache]);
 
   useEffect(() => {
-    fetchSubmissions();
-  }, [fetchSubmissions]);
+    const cacheKey = `submissions:reviewer:${statusFilter || 'all'}`;
+    const cachedData = getCache<Submission[]>(cacheKey);
+    
+    if (cachedData) {
+      // Use cached data immediately, no skeleton
+      setSubmissions(cachedData);
+      setLoading(false);
+      // Fetch fresh data in background
+      fetchSubmissions(false);
+    } else {
+      // No cache, fetch with loading
+      setLoading(true);
+      fetchSubmissions(true);
+    }
+  }, [statusFilter, fetchSubmissions, getCache]);
 
   const filteredSubmissions = submissions.filter((submission) =>
     submission.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Pagination logic
+  // Sort by updated_at (most recent first) for latest submissions
+  const sortedSubmissions = [...filteredSubmissions].sort((a, b) => {
+    return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+  });
+
+  // Get latest 3 submissions for dashboard preview
+  const latestSubmissions = sortedSubmissions.slice(0, 3);
+
+  // Pagination logic for full list
   const totalPages = Math.ceil(filteredSubmissions.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
@@ -75,9 +124,9 @@ export default function ReviewerDashboardPage() {
   return (
     <div className="max-w-7xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-4xl font-bold tracking-tight text-slate-900">Reviewer Dashboard</h1>
-        <p className="mt-3 text-lg font-light tracking-wide text-slate-600">
-          Review submissions, provide feedback through comments and annotations, and approve completed work
+        <h1 className="text-4xl font-bold tracking-tight text-black">Reviewer Dashboard</h1>
+        <p className="mt-3 text-lg font-light tracking-wide text-black/70">
+          Review submissions, provide feedback, and approve completed work
         </p>
       </div>
 
@@ -85,7 +134,7 @@ export default function ReviewerDashboardPage() {
         <StatCard
           label="Pending Review"
           value={stats.pending}
-          tone="amber"
+          tone="accent"
           icon={(
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -95,7 +144,7 @@ export default function ReviewerDashboardPage() {
         <StatCard
           label="In Review"
           value={stats.reviewing}
-          tone="fuchsia"
+          tone="secondary"
           icon={(
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -106,7 +155,7 @@ export default function ReviewerDashboardPage() {
         <StatCard
           label="Completed"
           value={stats.completed}
-          tone="emerald"
+          tone="dark"
           icon={(
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -116,13 +165,100 @@ export default function ReviewerDashboardPage() {
       </div>
 
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-slate-900">Submissions to Review</h2>
-        <p className="mt-2 text-base text-slate-600">
-          Review submissions, add comments and annotations, and approve completed work
+        <h2 className="text-2xl font-bold text-black">Latest Updates</h2>
+        <p className="mt-2 text-base text-black/70">
+          Recent submissions with status changes or new feedback
         </p>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200/50 p-3 mb-6">
+      {!loading && !error && latestSubmissions.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-black/10 overflow-hidden mb-6">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-black/10">
+              <thead className="bg-gradient-to-r from-white to-black/5">
+                <tr>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
+                    Title
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
+                    Updated
+                  </th>
+                  <th className="relative px-6 py-4">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-black/5">
+                {latestSubmissions.map((submission) => (
+                  <tr key={submission.id} className="hover:bg-black/5 transition-colors group">
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-semibold text-black group-hover:text-[#061E26] transition-colors">
+                          {submission.title}
+                        </span>
+                        {submission.description && (
+                          <span className="text-sm text-black/50 truncate max-w-xs mt-1">
+                            {submission.description}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <StatusBadge status={submission.status} size="sm" />
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-black/50">
+                      {new Date(submission.updated_at).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <Link
+                        href={`/submissions/${submission.id}`}
+                        className="inline-flex items-center gap-1 text-[#061E26] hover:text-black font-semibold transition-colors"
+                      >
+                        View
+                        <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {!loading && !error && latestSubmissions.length === 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-black/10 p-6 mb-6">
+          <p className="text-sm text-black/60 text-center">No recent submissions</p>
+        </div>
+      )}
+
+      {submissions.length > 3 && (
+        <div className="mt-6 text-center">
+          <Link
+            href="/submissions"
+            className="inline-flex items-center gap-2 px-6 py-3 text-sm font-semibold text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg transition-all duration-200"
+          >
+            View All Submissions ({submissions.length})
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
+        </div>
+      )}
+
+      <div className="mb-6 mt-8">
+        <h2 className="text-2xl font-bold text-black">All Submissions</h2>
+        <p className="mt-2 text-base text-black/70">
+          Review submissions, provide feedback, and approve completed work
+        </p>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-black/10 p-3 mb-6">
         <div className="flex flex-col sm:flex-row gap-2.5">
           <div className="flex-1">
             <label htmlFor="search" className="sr-only">
@@ -130,7 +266,7 @@ export default function ReviewerDashboardPage() {
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="h-5 w-5 text-black/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               </div>
@@ -140,7 +276,7 @@ export default function ReviewerDashboardPage() {
                 placeholder="Search by title..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="block w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow"
+                className="block w-full pl-10 pr-3 py-2.5 border border-black/20 rounded-lg text-sm placeholder-black/40 focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-[#061E26] transition-shadow"
               />
             </div>
           </div>
@@ -152,7 +288,7 @@ export default function ReviewerDashboardPage() {
               id="status"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as SubmissionStatus | '')}
-              className="block w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow"
+              className="block w-full px-3 py-2.5 border border-black/20 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-[#061E26] transition-shadow"
             >
               {statusOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -176,7 +312,7 @@ export default function ReviewerDashboardPage() {
       )}
 
       {loading && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200/50 p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-black/10 p-6">
           <TableSkeleton rows={5} />
         </div>
       )}

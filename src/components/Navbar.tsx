@@ -12,12 +12,12 @@ export function Navbar() {
 
   return (
     <>
-      <nav className="bg-white border-b border-gray-200 fixed top-0 left-0 right-0 h-16 z-40 lg:hidden">
+      <nav className="bg-white border-b border-black/10 fixed top-0 left-0 right-0 h-16 z-40 lg:hidden">
         <div className="h-full px-4 sm:px-6 lg:px-8">
           <div className="flex items-center h-full">
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="p-2 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              className="p-2 rounded-md text-black/40 hover:text-black/60 hover:bg-black/5 transition-colors"
               aria-label="Toggle menu"
             >
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

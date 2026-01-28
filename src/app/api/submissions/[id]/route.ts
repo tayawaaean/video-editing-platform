@@ -1,27 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/auth-helper';
+import { createServerClient } from '@supabase/ssr';
 import { getSubmissionById, updateSubmissionStatus } from '@/lib/airtable';
 import { updateSubmissionStatusSchema } from '@/lib/validations';
-import { DEV_MODE, DEV_SUBMISSIONS } from '@/lib/dev-mode';
 import type { Submission } from '@/types';
-
-// In-memory store for dev mode
-let devSubmissions = [...DEV_SUBMISSIONS];
-
-function getDevSubmission(id: string): Submission | null {
-  return devSubmissions.find(s => s.id === id) || null;
-}
-
-function updateDevSubmission(id: string, status: Submission['status']): Submission | null {
-  const index = devSubmissions.findIndex(s => s.id === id);
-  if (index === -1) return null;
-  devSubmissions[index] = { 
-    ...devSubmissions[index], 
-    status, 
-    updated_at: new Date().toISOString().split('T')[0] 
-  };
-  return devSubmissions[index];
-}
 
 // GET /api/submissions/[id] - Get a single submission
 export async function GET(
@@ -30,13 +11,40 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const { user, supabaseUid } = await getAuthUser();
+    
+    // Simple auth - same as /api/submissions
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll() {},
+        },
+      }
+    );
 
-    if (!user) {
+    const { data: { user: supabaseUser } } = await supabase.auth.getUser();
+    
+    if (!supabaseUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const submission = DEV_MODE ? getDevSubmission(id) : await getSubmissionById(id);
+    // Get user from Airtable
+    const { getUserBySupabaseUid } = await import('@/lib/airtable');
+    const userData = await getUserBySupabaseUid(supabaseUser.id);
+
+    if (!userData) {
+      return NextResponse.json({ error: 'User not found in Airtable' }, { status: 403 });
+    }
+
+    const user = userData;
+    const supabaseUid = supabaseUser.id;
+
+    // Always fetch from Airtable
+    const submission = await getSubmissionById(id);
     if (!submission) {
       return NextResponse.json({ error: 'Submission not found' }, { status: 404 });
     }
@@ -60,18 +68,44 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const { user } = await getAuthUser();
+    
+    // Simple auth - same as /api/submissions
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll() {},
+        },
+      }
+    );
 
-    if (!user) {
+    const { data: { user: supabaseUser } } = await supabase.auth.getUser();
+    
+    if (!supabaseUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    // Get user from Airtable
+    const { getUserBySupabaseUid } = await import('@/lib/airtable');
+    const userData = await getUserBySupabaseUid(supabaseUser.id);
+
+    if (!userData) {
+      return NextResponse.json({ error: 'User not found in Airtable' }, { status: 403 });
+    }
+
+    const user = userData;
 
     // Only reviewers and admins can update status
     if (user.role === 'submitter') {
       return NextResponse.json({ error: 'Only reviewers can update status' }, { status: 403 });
     }
 
-    const submission = DEV_MODE ? getDevSubmission(id) : await getSubmissionById(id);
+    // Always fetch from Airtable
+    const submission = await getSubmissionById(id);
     if (!submission) {
       return NextResponse.json({ error: 'Submission not found' }, { status: 404 });
     }
@@ -89,10 +123,8 @@ export async function PATCH(
 
     const { status } = validationResult.data;
 
-    // Update submission status
-    const updatedSubmission = DEV_MODE 
-      ? updateDevSubmission(id, status) 
-      : await updateSubmissionStatus(id, status);
+    // Always update in Airtable
+    const updatedSubmission = await updateSubmissionStatus(id, status);
 
     return NextResponse.json({ data: updatedSubmission });
   } catch (error) {

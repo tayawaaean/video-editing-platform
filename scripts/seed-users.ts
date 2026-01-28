@@ -1,6 +1,12 @@
 // Seed script for creating test users in Airtable
 // Run with: npx tsx scripts/seed-users.ts
 
+import { config } from 'dotenv';
+import { resolve } from 'path';
+
+// Load .env.local file
+config({ path: resolve(process.cwd(), '.env.local') });
+
 const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY;
 const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
 const AIRTABLE_TABLE_USERS = process.env.AIRTABLE_TABLE_USERS || 'Users';
@@ -14,19 +20,9 @@ const BASE_URL = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}`;
 // ============================================================
 const TEST_USERS = [
   {
-    supabase_uid: 'REPLACE_WITH_ADMIN_UID',      // Create user: admin@example.com
-    email: 'admin@example.com',
+    supabase_uid: '7c2a16dc-5877-4533-9d0b-ea02708a523a',
+    email: 'tayawaaean@gmail.com',
     role: 'admin',
-  },
-  {
-    supabase_uid: 'REPLACE_WITH_REVIEWER_UID',   // Create user: reviewer@example.com
-    email: 'reviewer@example.com',
-    role: 'reviewer',
-  },
-  {
-    supabase_uid: 'REPLACE_WITH_SUBMITTER_UID',  // Create user: submitter@example.com
-    email: 'submitter@example.com',
-    role: 'submitter',
   },
 ];
 
@@ -73,12 +69,8 @@ async function main() {
     console.error('❌ Error: Please update TEST_USERS with actual Supabase UIDs');
     console.error('\nSteps:');
     console.error('1. Go to Supabase Dashboard → Authentication → Users');
-    console.error('2. Click "Add user" and create users with passwords:');
-    console.error('   - admin@example.com');
-    console.error('   - reviewer@example.com');
-    console.error('   - submitter@example.com');
-    console.error('3. Copy each user\'s UUID and paste into scripts/seed-users.ts');
-    console.error('4. Run this script again\n');
+    console.error('2. Copy the user\'s UUID and paste into scripts/seed-users.ts');
+    console.error('3. Run this script again\n');
     process.exit(1);
   }
 
@@ -93,9 +85,7 @@ async function main() {
 
   console.log('\n✨ Seeding complete!');
   console.log('\nYou can now log in with:');
-  console.log('  Admin:     admin@example.com');
-  console.log('  Reviewer:  reviewer@example.com');
-  console.log('  Submitter: submitter@example.com');
+  console.log('  Admin:     tayawaaean@gmail.com');
 }
 
 main();

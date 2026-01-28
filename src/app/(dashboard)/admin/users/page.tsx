@@ -3,29 +3,57 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { useDataCache } from '@/contexts/DataCacheContext';
 import { RoleBadge, PageLoading, TableSkeleton, EmptyState } from '@/components';
 import type { User, UserRole } from '@/types';
 
 export default function AdminUsersPage() {
   const { user } = useAuth();
+  const { getCache, setCache, clearCache } = useDataCache();
   const router = useRouter();
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
+  
+  // Initialize with cache if available
+  const [users, setUsers] = useState<User[]>(() => {
+    return getCache<User[]>('users:admin') || [];
+  });
+  const [loading, setLoading] = useState(() => {
+    return !getCache<User[]>('users:admin');
+  });
   const [error, setError] = useState<string | null>(null);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
   
   // New user form
   const [showAddForm, setShowAddForm] = useState(false);
   const [newUserEmail, setNewUserEmail] = useState('');
-  const [newUserUid, setNewUserUid] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserRole, setNewUserRole] = useState<UserRole>('submitter');
   const [addingUser, setAddingUser] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
-  const fetchUsers = useCallback(async () => {
+  const fetchUsers = useCallback(async (showLoading = true) => {
     try {
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
+      
+      const cacheKey = 'users:admin';
+      
+      // Check cache first
+      const cachedData = getCache<User[]>(cacheKey);
+      if (cachedData && showLoading) {
+        setUsers(cachedData);
+        setLoading(false);
+        setError(null);
+        // Still fetch in background to refresh
+        showLoading = false;
+      }
+      
       const response = await fetch('/api/admin/users');
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(`Server error: ${text.substring(0, 200)}`);
+      }
       const data = await response.json();
 
       if (!response.ok) {
@@ -37,26 +65,58 @@ export default function AdminUsersPage() {
       }
 
       setUsers(data.data);
+      setCache(cacheKey, data.data);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [router, getCache, setCache]);
 
   useEffect(() => {
     if (user?.role !== 'admin') {
       if (user) {
-        const rolePath = user.role === 'reviewer' ? '/reviewer/dashboard' : user.role === 'submitter' ? '/submitter/dashboard' : '/dashboard';
+        const rolePath = user.role === 'reviewer' ? '/reviewer/dashboard' : user.role === 'submitter' ? '/submitter/dashboard' : '/admin/dashboard';
         router.push(rolePath);
       } else {
         router.push('/login');
       }
       return;
     }
-    fetchUsers();
-  }, [user, router, fetchUsers]);
+    
+    const cacheKey = 'users:admin';
+    const cachedData = getCache<User[]>(cacheKey);
+    
+    if (cachedData) {
+      // Use cached data immediately, no skeleton
+      setUsers(cachedData);
+      setLoading(false);
+      // Fetch fresh data in background
+      fetchUsers(false);
+    } else {
+      // No cache, fetch with loading
+      fetchUsers(true);
+    }
+  }, [user, router, fetchUsers, getCache]);
+
+  // Handle Escape key to close modal
+  useEffect(() => {
+    if (!showAddForm) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowAddForm(false);
+        setAddError(null);
+        setNewUserEmail('');
+        setNewUserPassword('');
+        setNewUserRole('submitter');
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [showAddForm]);
 
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
     setUpdatingUserId(userId);
@@ -67,12 +127,20 @@ export default function AdminUsersPage() {
         body: JSON.stringify({ role: newRole }),
       });
 
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(`Server error: ${text.substring(0, 200)}`);
+      }
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
 
-      setUsers(prev =>
-        prev.map(u => (u.id === userId ? { ...u, role: newRole } : u))
-      );
+      setUsers(prev => {
+        const updated = prev.map(u => (u.id === userId ? { ...u, role: newRole } : u));
+        // Update cache with new data
+        setCache('users:admin', updated);
+        return updated;
+      });
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to update role');
     } finally {
@@ -90,19 +158,27 @@ export default function AdminUsersPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          supabase_uid: newUserUid,
           email: newUserEmail,
+          password: newUserPassword,
           role: newUserRole,
         }),
       });
 
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(`Server error: ${text.substring(0, 200)}`);
+      }
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
 
       setUsers(prev => [data.data, ...prev]);
+      // Clear cache so fresh data is fetched
+      clearCache('users:admin');
       setShowAddForm(false);
+      setAddError(null);
       setNewUserEmail('');
-      setNewUserUid('');
+      setNewUserPassword('');
       setNewUserRole('submitter');
     } catch (err) {
       setAddError(err instanceof Error ? err.message : 'Failed to add user');
@@ -119,103 +195,123 @@ export default function AdminUsersPage() {
     <div className="max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-4xl font-bold tracking-tight text-slate-900">User Management</h1>
-          <p className="mt-3 text-lg font-light tracking-wide text-slate-600">
+          <h1 className="text-4xl font-bold tracking-tight text-black">User Management</h1>
+          <p className="mt-3 text-lg font-light tracking-wide text-black/70">
             Manage user accounts and roles
           </p>
         </div>
         <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="group relative inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 hover:scale-105 transition-all duration-200"
+          onClick={() => setShowAddForm(true)}
+          className="group relative inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-[#061E26] to-black text-white rounded-xl font-semibold shadow-lg shadow-[#061E26]/30 hover:shadow-xl hover:shadow-[#061E26]/40 hover:scale-105 transition-all duration-200"
         >
-          {showAddForm ? (
-            <>
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              Cancel
-            </>
-          ) : (
-            <>
-              <svg className="w-5 h-5 group-hover:rotate-90 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Add User
-            </>
-          )}
+          <svg className="w-5 h-5 group-hover:rotate-90 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          Add User
         </button>
       </div>
 
-      {/* Add user form */}
+      {/* Add user modal */}
       {showAddForm && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/50 p-6 mb-8 animate-fade-in">
-          <h2 className="text-xl font-bold text-slate-900 mb-5">Add New User</h2>
-          
-          {addError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-5 py-4 rounded-xl mb-5 shadow-sm">
-              <div className="flex items-center gap-2">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" 
+          onClick={() => {
+            setShowAddForm(false);
+            setAddError(null);
+            setNewUserEmail('');
+            setNewUserPassword('');
+            setNewUserRole('submitter');
+          }}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-xl border border-black/10 p-6 w-full max-w-md animate-fade-in" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-xl font-bold text-black">Add New User</h2>
+              <button
+                onClick={() => {
+                  setShowAddForm(false);
+                  setAddError(null);
+                  setNewUserEmail('');
+                  setNewUserPassword('');
+                  setNewUserRole('submitter');
+                }}
+                className="p-2 rounded-lg text-black/40 hover:text-black/60 hover:bg-black/5 transition-colors"
+                aria-label="Close modal"
+              >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                <span>{addError}</span>
-              </div>
+              </button>
             </div>
-          )}
+            
+            {addError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-5 py-4 rounded-xl mb-5 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>{addError}</span>
+                </div>
+              </div>
+            )}
 
-          <form onSubmit={handleAddUser} className="space-y-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div>
-                <label htmlFor="newUserUid" className="block text-sm font-semibold text-slate-700 mb-2">
-                  Supabase UID <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  id="newUserUid"
-                  required
-                  value={newUserUid}
-                  onChange={(e) => setNewUserUid(e.target.value)}
-                  className="block w-full px-4 py-2.5 border border-slate-300 rounded-lg shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow"
-                  placeholder="UUID from Supabase Auth"
-                />
-                <p className="mt-2 text-xs text-slate-500">
-                  User must already exist in Supabase Auth
-                </p>
+            <form onSubmit={handleAddUser} className="space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div>
+                  <label htmlFor="newUserEmail" className="block text-sm font-semibold text-black/80 mb-2">
+                    Email <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    id="newUserEmail"
+                    required
+                    value={newUserEmail}
+                    onChange={(e) => setNewUserEmail(e.target.value)}
+                    className="block w-full px-4 py-2.5 border border-black/20 rounded-lg shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-[#061E26] transition-shadow"
+                    placeholder="user@example.com"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="newUserPassword" className="block text-sm font-semibold text-black/80 mb-2">
+                    Password <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="password"
+                    id="newUserPassword"
+                    required
+                    value={newUserPassword}
+                    onChange={(e) => setNewUserPassword(e.target.value)}
+                    className="block w-full px-4 py-2.5 border border-black/20 rounded-lg shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-[#061E26] transition-shadow"
+                    placeholder="Minimum 6 characters"
+                    minLength={6}
+                  />
+                  <p className="mt-2 text-xs text-black/50">
+                    Password must be at least 6 characters
+                  </p>
+                </div>
               </div>
-              <div>
-                <label htmlFor="newUserEmail" className="block text-sm font-semibold text-slate-700 mb-2">
-                  Email <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="email"
-                  id="newUserEmail"
-                  required
-                  value={newUserEmail}
-                  onChange={(e) => setNewUserEmail(e.target.value)}
-                  className="block w-full px-4 py-2.5 border border-slate-300 rounded-lg shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow"
-                  placeholder="user@example.com"
-                />
-              </div>
-            </div>
-            <div className="sm:w-48">
-              <label htmlFor="newUserRole" className="block text-sm font-semibold text-slate-700 mb-2">
+              <div className="sm:w-48">
+              <label htmlFor="newUserRole" className="block text-sm font-semibold text-black/80 mb-2">
                 Role <span className="text-red-500">*</span>
               </label>
               <select
                 id="newUserRole"
                 value={newUserRole}
                 onChange={(e) => setNewUserRole(e.target.value as UserRole)}
-                className="block w-full px-4 py-2.5 border border-slate-300 rounded-lg shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow"
+                className="block w-full px-4 py-2.5 border border-black/20 rounded-lg shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-[#061E26] transition-shadow"
               >
                 <option value="submitter">Submitter</option>
                 <option value="reviewer">Reviewer</option>
                 <option value="admin">Admin</option>
               </select>
-            </div>
-            <div className="pt-3">
+              </div>
+              <div className="pt-3">
               <button
                 type="submit"
                 disabled={addingUser}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold shadow-lg shadow-blue-500/30 hover:shadow-xl hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-[#061E26] to-black text-white rounded-xl font-semibold shadow-lg shadow-[#061E26]/30 hover:shadow-xl hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
               >
                 {addingUser ? (
                   <>
@@ -234,8 +330,9 @@ export default function AdminUsersPage() {
                   </>
                 )}
               </button>
-            </div>
-          </form>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
@@ -253,14 +350,14 @@ export default function AdminUsersPage() {
 
       {/* Loading state */}
       {loading && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200/50 p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-black/10 p-6">
           <TableSkeleton rows={5} />
         </div>
       )}
 
       {/* Empty state */}
       {!loading && !error && users.length === 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200/50">
+        <div className="bg-white rounded-xl shadow-sm border border-black/10">
           <EmptyState
             title="No users found"
             description="Add your first user to get started"
@@ -275,41 +372,41 @@ export default function AdminUsersPage() {
 
       {/* Users table */}
       {!loading && !error && users.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200/50 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-sm border border-black/10 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200">
-              <thead className="bg-gradient-to-r from-slate-50 to-slate-100">
+            <table className="min-w-full divide-y divide-black/10">
+              <thead className="bg-gradient-to-r from-white to-black/5">
                 <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
                     Email
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
                     Role
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
                     Supabase UID
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
                     Created
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-black/70 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-slate-100">
+              <tbody className="bg-white divide-y divide-black/5">
                 {users.map((u) => (
-                  <tr key={u.id} className="hover:bg-slate-50/50 transition-colors group">
+                  <tr key={u.id} className="hover:bg-black/5 transition-colors group">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-semibold text-slate-900">{u.email}</span>
+                      <span className="text-sm font-semibold text-black">{u.email}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <RoleBadge role={u.role} />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-xs font-mono text-slate-500 bg-slate-50 px-2 py-1 rounded">{u.supabase_uid}</span>
+                      <span className="text-xs font-mono text-black/50 bg-black/5 px-2 py-1 rounded">{u.supabase_uid}</span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-black/50">
                       {new Date(u.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -318,14 +415,14 @@ export default function AdminUsersPage() {
                           value={u.role}
                           onChange={(e) => handleRoleChange(u.id, e.target.value as UserRole)}
                           disabled={updatingUserId === u.id || u.supabase_uid === user?.supabase_uid}
-                          className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-shadow"
+                          className="px-3 py-1.5 text-sm border border-black/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-[#061E26] disabled:opacity-50 disabled:cursor-not-allowed transition-shadow"
                         >
                           <option value="submitter">Submitter</option>
                           <option value="reviewer">Reviewer</option>
                           <option value="admin">Admin</option>
                         </select>
                         {u.supabase_uid === user?.supabase_uid && (
-                          <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-full">(you)</span>
+                          <span className="text-xs font-medium text-black/50 bg-black/5 px-2 py-1 rounded-full">(you)</span>
                         )}
                         {updatingUserId === u.id && (
                           <svg className="animate-spin h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

@@ -8,15 +8,15 @@ interface StatusBadgeProps {
 const statusConfig: Record<SubmissionStatus, { label: string; className: string }> = {
   pending: {
     label: 'Pending',
-    className: 'bg-amber-50 text-amber-700 ring-amber-600/20',
+    className: 'bg-[#BA836B]/10 text-[#BA836B] ring-[#BA836B]/20',
   },
   reviewing: {
     label: 'In Review',
-    className: 'bg-purple-50 text-purple-700 ring-purple-600/20',
+    className: 'bg-[#061E26]/10 text-[#061E26] ring-[#061E26]/20',
   },
   completed: {
     label: 'Completed',
-    className: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+    className: 'bg-black/10 text-black/70 ring-black/20',
   },
 };
 

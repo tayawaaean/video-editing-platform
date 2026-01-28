@@ -56,6 +56,16 @@ const navItems: NavItem[] = [
     roles: ['submitter'],
   },
   {
+    label: 'My Submissions',
+    href: '/submissions',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
+    ),
+    roles: ['submitter'],
+  },
+  {
     label: 'New Submission',
     href: '/submissions/new',
     icon: (
@@ -64,6 +74,16 @@ const navItems: NavItem[] = [
       </svg>
     ),
     roles: ['submitter'],
+  },
+  {
+    label: 'Settings',
+    href: '/settings',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+    ),
   },
 ];
 
@@ -76,7 +96,7 @@ function getRoleDashboardPath(role: UserRole): string {
     case 'submitter':
       return '/submitter/dashboard';
     default:
-      return '/dashboard';
+      return '/admin/dashboard';
   }
 }
 
@@ -98,39 +118,36 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
   );
 
   const isActive = (href: string) => {
-    // Exact match for current page
-    if (pathname === href) {
-      return true;
-    }
-    
-    // For dashboard links, also highlight when viewing submission details
+    if (pathname === href) return true;
+
     if (href.includes('/dashboard')) {
-      // If we're on a submission detail page (/submissions/:id), highlight the dashboard
-      if (pathname.startsWith('/submissions/') && !pathname.endsWith('/new')) {
-        return true;
-      }
+      return pathname === href;
+    }
+
+    // My Submissions: highlight on /submissions list and on submission detail /submissions/[id]
+    if (href === '/submissions') {
+      if (pathname === '/submissions') return true;
+      if (pathname.startsWith('/submissions/') && pathname !== '/submissions/new') return true;
       return false;
     }
-    
-    // For "New Submission" link, only highlight on exact match
+
     if (href === '/submissions/new') {
-      return false;
+      return pathname === '/submissions/new';
     }
-    
-    // For other routes, match if pathname starts with the href
+
     return pathname.startsWith(href + '/');
   };
 
   const sidebarContent = (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className={`flex items-center border-b border-slate-200 flex-shrink-0 bg-gradient-to-r from-slate-50 to-white ${isCollapsed ? 'justify-center py-4 px-2' : 'justify-between p-4 gap-2'}`}>
+      <div className={`flex items-center border-b border-black/10 flex-shrink-0 bg-gradient-to-r from-white to-black/5 ${isCollapsed ? 'justify-center py-4 px-2' : 'justify-between p-4 gap-2'}`}>
         {isCollapsed ? (
           <Link
             href={roleDashboardPath}
-            className="flex-shrink-0 p-2 rounded-xl hover:bg-slate-100 transition-colors"
+            className="flex-shrink-0 p-2 rounded-xl hover:bg-black/5 transition-colors"
             title={process.env.NEXT_PUBLIC_APP_NAME || 'Video Review Platform'}
           >
-            <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-6 h-6 text-[#061E26]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
           </Link>
@@ -138,7 +155,7 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
           <>
             <Link
               href={roleDashboardPath}
-              className="font-bold text-lg bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent flex-1 min-w-0 hover:from-blue-700 hover:to-indigo-700 transition-all"
+              className="font-bold text-lg bg-gradient-to-r from-[#061E26] to-black bg-clip-text text-transparent flex-1 min-w-0 hover:from-[#061E26]/80 hover:to-black/80 transition-all"
             >
               {process.env.NEXT_PUBLIC_APP_NAME || 'Video Review Platform'}
             </Link>
@@ -146,7 +163,7 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
         )}
         <button
           onClick={onMobileClose}
-          className="lg:hidden flex-shrink-0 p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+          className="lg:hidden flex-shrink-0 p-2 rounded-lg text-black/40 hover:text-black/60 hover:bg-black/5 transition-colors"
           aria-label="Close sidebar"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -169,12 +186,12 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
                   : 'gap-3 px-4 py-3'
               } ${
                 active
-                  ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/30'
-                  : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                  ? 'bg-gradient-to-r from-[#061E26] to-black text-white shadow-lg shadow-[#061E26]/30'
+                  : 'text-black/70 hover:bg-black/5 hover:text-black'
               }`}
               title={isCollapsed ? item.label : undefined}
             >
-              <span className={`flex-shrink-0 ${active ? 'text-white' : 'text-slate-400 group-hover:text-slate-600'} transition-colors`}>
+              <span className={`flex-shrink-0 ${active ? 'text-white' : 'text-black/40 group-hover:text-black/60'} transition-colors`}>
                 {item.icon}
               </span>
               {!isCollapsed && <span className="truncate">{item.label}</span>}
@@ -183,25 +200,25 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
         })}
       </nav>
 
-      <div className={`border-t border-slate-200 space-y-3 flex-shrink-0 ${isCollapsed ? 'py-4 px-2' : 'p-4'}`}>
+      <div className={`border-t border-black/10 space-y-3 flex-shrink-0 ${isCollapsed ? 'py-4 px-2' : 'p-4'}`}>
         {!isCollapsed && (
-          <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl">
+          <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-white to-black/5 rounded-xl">
             <div className="flex-shrink-0">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#061E26] to-black flex items-center justify-center shadow-md">
                 <span className="text-sm font-semibold text-white">
                   {user.email.charAt(0).toUpperCase()}
                 </span>
               </div>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-slate-900 truncate">{user.email}</p>
+              <p className="text-sm font-semibold text-black truncate">{user.email}</p>
               <RoleBadge role={user.role} />
             </div>
           </div>
         )}
         {isCollapsed && (
           <div className="flex justify-center w-full">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#061E26] to-black flex items-center justify-center shadow-md">
               <span className="text-sm font-semibold text-white">
                 {user.email.charAt(0).toUpperCase()}
               </span>
@@ -227,7 +244,7 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
   return (
     <>
       <aside
-        className={`hidden lg:flex flex-col bg-white border-r border-slate-200 fixed left-0 top-0 bottom-0 z-30 transition-all duration-300 shadow-sm ${
+        className={`hidden lg:flex flex-col bg-white border-r border-black/10 fixed left-0 top-0 bottom-0 z-30 transition-all duration-300 shadow-sm ${
           isCollapsed ? 'w-16' : 'w-64'
         }`}
       >
@@ -236,7 +253,7 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
         {/* Toggle button positioned outside the sidebar */}
         <button
           onClick={toggleCollapse}
-          className="absolute -right-3 top-6 p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors border border-slate-300 bg-white shadow-md z-40 hover:shadow-lg"
+          className="absolute -right-3 top-6 p-1.5 rounded-full text-black/40 hover:text-black/60 hover:bg-black/5 transition-colors border border-black/20 bg-white shadow-md z-40 hover:shadow-lg"
           aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           <svg
@@ -260,7 +277,7 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
             className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden transition-opacity"
             onClick={onMobileClose}
           />
-          <aside className="fixed left-0 top-0 bottom-0 w-64 bg-white border-r border-slate-200 z-50 lg:hidden shadow-2xl">
+          <aside className="fixed left-0 top-0 bottom-0 w-64 bg-white border-r border-black/10 z-50 lg:hidden shadow-2xl">
             {sidebarContent}
           </aside>
         </>

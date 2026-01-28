@@ -43,8 +43,9 @@ npm install
 2. Go to **Settings > API** and copy:
    - Project URL
    - Anon public key
+   - **Service role key** (required for admin user creation)
 3. Go to **Authentication > Providers** and enable Email provider
-4. Create test users in **Authentication > Users**
+4. Create your first admin user manually in **Authentication > Users** (or use the admin panel to create users)
 
 ### 3. Airtable Setup
 
@@ -71,7 +72,7 @@ npm install
 | created_at | Date |
 | updated_at | Date |
 
-#### Comments Table
+#### Feedback Table (formerly Comments)
 | Field | Type |
 |-------|------|
 | submission_id | Single line text |
@@ -79,6 +80,7 @@ npm install
 | timestamp_seconds | Number |
 | content | Long text |
 | parent_comment_id | Single line text |
+| attachment_url | Long text (optional) |
 | created_at | Date |
 
 #### Annotations Table
@@ -109,13 +111,14 @@ cp .env.example .env.local
 # Supabase Configuration
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 # Airtable Configuration (Server-side only)
 AIRTABLE_API_KEY=pat_xxxxxxxxxxxx
 AIRTABLE_BASE_ID=appXXXXXXXXXXXXXX
 AIRTABLE_TABLE_USERS=Users
 AIRTABLE_TABLE_SUBMISSIONS=Submissions
-AIRTABLE_TABLE_COMMENTS=Comments
+AIRTABLE_TABLE_COMMENTS=Feedback
 AIRTABLE_TABLE_ANNOTATIONS=Annotations
 
 # App Configuration
@@ -125,7 +128,14 @@ APP_ENV=local
 
 ### 5. Provision Your First User
 
-After setting up Supabase Auth users, you need to add them to the Airtable Users table:
+**Option 1: Create via Admin Panel (Recommended)**
+- Log in as an admin user
+- Go to the Users page
+- Click "Add User" and fill in email, password, and role
+- The system will automatically create the user in Supabase Auth and Airtable
+
+**Option 2: Manual Setup**
+After manually creating a user in Supabase Auth, you need to add them to the Airtable Users table:
 
 1. Create a user in Supabase Auth
 2. Copy their UUID from Supabase Dashboard > Authentication > Users

@@ -49,12 +49,9 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // If logged in and on login page, redirect to /dashboard (main middleware will handle role-based redirect)
-  if (user && isLoginPage) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
-    return NextResponse.redirect(url);
-  }
+  // If logged in and on login page, let main middleware handle role-based redirect
+  // Don't redirect here - let main middleware handle it with role information
+  // (Main middleware will redirect to role-based dashboard)
 
   return supabaseResponse;
 }
