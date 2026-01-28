@@ -2,6 +2,7 @@ import { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { createClient } from '@supabase/supabase-js';
+import type { UserRole } from '@/types';
 
 // Types for our user
 export interface DbUser {
@@ -113,7 +114,7 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id;
         token.email = user.email;
-        token.role = (user as { role: string }).role;
+        token.role = (user as { role: UserRole }).role;
       }
       return token;
     },
