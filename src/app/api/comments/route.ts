@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { createClient } from '@supabase/supabase-js';
-import { getCommentsBySubmission, createComment, getSubmissionById, getUserEmailMap } from '@/lib/airtable';
+import { getCommentsBySubmission, createComment, getSubmissionById, getUserEmailMap, updateSubmissionStatus } from '@/lib/airtable';
 import { createCommentSchema } from '@/lib/validations';
 
 const BUCKET_NAME = 'attachments';
@@ -107,6 +107,7 @@ export async function GET(request: NextRequest) {
     const commentsWithEmails = comments.map(comment => ({
       ...comment,
       user_email: (comment.user_uid && emailMap[comment.user_uid]) || 'Unknown',
+      revision_round: comment.revision_round ?? 1,
     }));
 
     return NextResponse.json({ data: commentsWithEmails });
@@ -178,7 +179,17 @@ export async function POST(request: NextRequest) {
       attachment_url: finalAttachmentUrl,
       ...(attachment_pin_x != null && attachment_pin_y != null && { attachment_pin_x, attachment_pin_y }),
       ...(attachment_pin_comment && { attachment_pin_comment }),
+      revision_round: submission.revision_round ?? 1,
     });
+
+    // When feedback is posted, move submission to "reviewing" if it is still "pending"
+    if (submission.status === 'pending') {
+      try {
+        await updateSubmissionStatus(submission_id, 'reviewing');
+      } catch (statusError) {
+        console.warn('Failed to update submission status to reviewing:', statusError);
+      }
+    }
 
     return NextResponse.json({
       data: {

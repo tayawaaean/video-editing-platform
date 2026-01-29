@@ -81,6 +81,7 @@ export default function ReviewerDashboardPage() {
     total: submissions.length,
     pending: submissions.filter((s) => s.status === 'pending').length,
     reviewing: submissions.filter((s) => s.status === 'reviewing').length,
+    revision_requested: submissions.filter((s) => s.status === 'revision_requested').length,
     approved: submissions.filter((s) => s.status === 'approved').length,
   };
 
@@ -93,7 +94,7 @@ export default function ReviewerDashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-10">
         <StatCard
           label="Total"
           value={stats.total}
@@ -122,6 +123,16 @@ export default function ReviewerDashboardPage() {
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+          )}
+        />
+        <StatCard
+          label="Revision Requested"
+          value={stats.revision_requested}
+          tone="accent"
+          icon={(
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
           )}
         />

@@ -1,13 +1,15 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { StatusBadge, PageLoading } from '@/components';
 import { VideoPlayer } from '@/components/VideoPlayer';
 import { FrameAnnotationEditor } from '@/components/FrameAnnotationEditor';
 import { formatTimestamp } from '@/lib/google-drive';
-import type { Submission, Comment, SubmissionStatus } from '@/types';
+import { uploadVideoToFirebase, isFirebaseConfigured } from '@/lib/firebase';
+import type { Submission, Comment, SubmissionStatus, Version } from '@/types';
 
 interface SubmissionDetailClientProps {
   submissionId: string;
@@ -15,10 +17,40 @@ interface SubmissionDetailClientProps {
 
 export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientProps) {
   const { user } = useAuth();
+  const router = useRouter();
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Delete state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Inline edit state
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Revision request state
+  const [showRevisionModal, setShowRevisionModal] = useState(false);
+  const [revisionSummary, setRevisionSummary] = useState('');
+
+  // Resubmit state
+  const [showResubmitModal, setShowResubmitModal] = useState(false);
+  const [resubmitFile, setResubmitFile] = useState<File | null>(null);
+  const [resubmitUploading, setResubmitUploading] = useState(false);
+  const [resubmitProgress, setResubmitProgress] = useState(0);
+  const resubmitFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Version history state
+  const [versions, setVersions] = useState<Version[]>([]);
+  const [showVersions, setShowVersions] = useState(false);
+
+  // Comment round filter
+  const [roundFilter, setRoundFilter] = useState<number | 'all'>('all');
 
   const [newComment, setNewComment] = useState('');
   const [commentTimestamp, setCommentTimestamp] = useState('0:00');
@@ -49,12 +81,26 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
 
   const roleLower = user?.role?.toLowerCase();
   const isAdmin = roleLower === 'admin';
+  const isOwner = submission?.submitter_uid === user?.id;
   const canReview = roleLower === 'reviewer' || isAdmin;
   const canPostFeedback = canReview && submission?.status !== 'approved';
-  
+
+  // Editable when pending/reviewing/revision_requested and user is owner or admin
+  const canEditMetadata = (isOwner || isAdmin) &&
+    submission?.status !== undefined &&
+    ['pending', 'reviewing', 'revision_requested'].includes(submission.status);
+
+  // Owner can delete when pending/reviewing/revision_requested; admin can delete any
+  const canDelete = isAdmin ||
+    (isOwner && submission?.status !== undefined &&
+     ['pending', 'reviewing', 'revision_requested'].includes(submission.status));
+
+  // Resubmit banner for owner when revision_requested
+  const canResubmit = isOwner && submission?.status === 'revision_requested';
+
   // Check if submission can be archived (admin only, approved status, firebase source)
-  const canArchive = isAdmin && 
-    submission?.status === 'approved' && 
+  const canArchive = isAdmin &&
+    submission?.status === 'approved' &&
     submission?.video_source === 'firebase' &&
     submission?.firebase_video_path;
 
@@ -101,23 +147,39 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
     }
   }, [submissionId]);
 
+  // Fetch versions - defined before fetchAll to avoid declaration order issue
+  const fetchVersions = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/submissions/${submissionId}/versions`);
+      if (!response.ok) return;
+      const data = await response.json();
+      setVersions(data.data || []);
+    } catch {
+      // silently fail
+    }
+  }, [submissionId]);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    await Promise.all([fetchSubmission(), fetchComments()]);
+    await Promise.all([fetchSubmission(), fetchComments(), fetchVersions()]);
     setLoading(false);
-  }, [fetchSubmission, fetchComments]);
+  }, [fetchSubmission, fetchComments, fetchVersions]);
 
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
 
+  // Single stable callback so useEffect dependency array size stays constant
+  const pollData = useCallback(() => {
+    fetchComments();
+    fetchSubmission();
+    fetchVersions();
+  }, [fetchComments, fetchSubmission, fetchVersions]);
+
   useEffect(() => {
-    const interval = setInterval(() => {
-      fetchComments();
-      fetchSubmission();
-    }, 5000);
+    const interval = setInterval(pollData, 5000);
     return () => clearInterval(interval);
-  }, [fetchComments, fetchSubmission]);
+  }, [pollData]);
 
   // Check if auto-archive is in progress (approved + still on firebase)
   const isAutoArchiving = submission?.status === 'approved' &&
@@ -150,6 +212,109 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
       console.error('Archive error:', err);
     } finally {
       setArchiving(false);
+    }
+  };
+
+  // Delete submission
+  const handleDeleteSubmission = async () => {
+    setDeleting(true);
+    try {
+      const response = await fetch(`/api/submissions/${submissionId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to delete');
+      }
+      router.push(getRoleDashboardPath());
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete submission');
+      setDeleting(false);
+      setShowDeleteModal(false);
+    }
+  };
+
+  // Save metadata edit
+  const handleSaveMetadata = async (field: 'title' | 'description') => {
+    setSaving(true);
+    try {
+      const body = field === 'title' ? { title: editTitle } : { description: editDescription };
+      const response = await fetch(`/api/submissions/${submissionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to save');
+      setSubmission(data.data);
+      if (field === 'title') setEditingTitle(false);
+      else setEditingDescription(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Request revision
+  const handleRequestRevision = async () => {
+    setStatusUpdating(true);
+    try {
+      const response = await fetch(`/api/submissions/${submissionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'revision_requested',
+          revision_summary: revisionSummary.trim() || undefined,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to request revision');
+      setSubmission(data.data);
+      setShowRevisionModal(false);
+      setRevisionSummary('');
+      await fetchComments();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to request revision');
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
+
+  // Resubmit with new video (direct upload only)
+  const handleResubmit = async () => {
+    setResubmitUploading(true);
+    try {
+      if (!resubmitFile) throw new Error('Please select a file');
+      const result = await uploadVideoToFirebase(resubmitFile, (progress) => {
+        setResubmitProgress(progress.progress);
+      });
+      if (!result.success || !result.downloadUrl || !result.filePath) {
+        throw new Error(result.error || 'Upload failed');
+      }
+      const requestBody = {
+        video_source: 'firebase',
+        firebase_video_url: result.downloadUrl,
+        firebase_video_path: result.filePath,
+        firebase_video_size: resubmitFile.size,
+        embed_url: result.downloadUrl,
+      };
+      const response = await fetch(`/api/submissions/${submissionId}/resubmit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Resubmit failed');
+      setSubmission(data.data);
+      setShowResubmitModal(false);
+      setResubmitFile(null);
+      setResubmitProgress(0);
+      await fetchVersions();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Resubmit failed');
+    } finally {
+      setResubmitUploading(false);
     }
   };
 
@@ -532,8 +697,16 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
     }
   };
 
-  const rootComments = comments.filter(c => !c.parent_comment_id);
-  const getReplies = (parentId: string) => comments.filter(c => c.parent_comment_id === parentId);
+  // Get unique rounds from comments
+  const availableRounds = [...new Set(comments.map(c => c.revision_round ?? 1))].sort((a, b) => a - b);
+
+  // Filter comments by round
+  const filteredComments = roundFilter === 'all'
+    ? comments
+    : comments.filter(c => (c.revision_round ?? 1) === roundFilter);
+
+  const rootComments = filteredComments.filter(c => !c.parent_comment_id);
+  const getReplies = (parentId: string) => filteredComments.filter(c => c.parent_comment_id === parentId);
 
   // Get all replies for a top-level comment (flattened - no deep nesting)
   const getAllRepliesFlat = (commentId: string): Comment[] => {
@@ -729,8 +902,60 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
                   </svg>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h1 className="text-2xl font-bold text-gray-900 mb-1">{submission.title}</h1>
-                  {submission.description && <p className="text-gray-600 leading-relaxed">{submission.description}</p>}
+                  {editingTitle ? (
+                    <div className="flex items-center gap-2 mb-1">
+                      <input
+                        type="text"
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        className="flex-1 text-2xl font-bold text-gray-900 border border-black/20 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#061E26]"
+                        autoFocus
+                      />
+                      <button onClick={() => handleSaveMetadata('title')} disabled={saving} className="px-3 py-1.5 text-xs font-semibold text-white bg-[#061E26] rounded-lg disabled:opacity-50">Save</button>
+                      <button onClick={() => setEditingTitle(false)} className="px-3 py-1.5 text-xs font-medium text-black/60 hover:text-black">Cancel</button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 mb-1 group/title">
+                      <h1 className="text-2xl font-bold text-gray-900">{submission.title}</h1>
+                      {canEditMetadata && (
+                        <button
+                          onClick={() => { setEditTitle(submission.title); setEditingTitle(true); }}
+                          className="opacity-0 group-hover/title:opacity-100 p-1 text-black/40 hover:text-black transition-all"
+                          title="Edit title"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {editingDescription ? (
+                    <div className="flex flex-col gap-2">
+                      <textarea
+                        value={editDescription}
+                        onChange={(e) => setEditDescription(e.target.value)}
+                        className="w-full text-gray-600 border border-black/20 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#061E26] resize-none"
+                        rows={3}
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <button onClick={() => handleSaveMetadata('description')} disabled={saving} className="px-3 py-1.5 text-xs font-semibold text-white bg-[#061E26] rounded-lg disabled:opacity-50">Save</button>
+                        <button onClick={() => setEditingDescription(false)} className="px-3 py-1.5 text-xs font-medium text-black/60 hover:text-black">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-2 group/desc">
+                      {submission.description && <p className="text-gray-600 leading-relaxed">{submission.description}</p>}
+                      {canEditMetadata && (
+                        <button
+                          onClick={() => { setEditDescription(submission.description || ''); setEditingDescription(true); }}
+                          className="opacity-0 group-hover/desc:opacity-100 p-1 text-black/40 hover:text-black transition-all flex-shrink-0 mt-0.5"
+                          title="Edit description"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-3 mt-4 text-sm text-gray-500">
@@ -751,23 +976,62 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
             </div>
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
               <StatusBadge status={submission.status} />
+              {/* Reviewer action buttons */}
               {canReview && (
-                <div className="relative">
-                  <select
-                    value={submission.status}
-                    onChange={(e) => handleStatusChange(e.target.value as SubmissionStatus)}
-                    disabled={statusUpdating}
-                    className="appearance-none px-4 py-2 pr-10 text-sm font-medium border border-black/20 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                  >
-                    <option value="pending">Move to Pending</option>
-                    <option value="reviewing">Move to In Review</option>
-                    <option value="approved">Move to Approved</option>
-                  </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Start Review - when pending */}
+                  {submission.status === 'pending' && (
+                    <button
+                      onClick={() => handleStatusChange('reviewing')}
+                      disabled={statusUpdating}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-300 rounded-lg hover:bg-blue-100 disabled:opacity-50 transition-all"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                      {statusUpdating ? 'Starting...' : 'Start Review'}
+                    </button>
+                  )}
+                  {/* Approve - when reviewing */}
+                  {submission.status === 'reviewing' && (
+                    <button
+                      onClick={() => handleStatusChange('approved')}
+                      disabled={statusUpdating}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-green-600 border border-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-all shadow-sm"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {statusUpdating ? 'Approving...' : 'Approve'}
+                    </button>
+                  )}
+                  {/* Request Revision - when reviewing */}
+                  {submission.status === 'reviewing' && (
+                    <button
+                      onClick={() => setShowRevisionModal(true)}
+                      disabled={statusUpdating}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-300 rounded-lg hover:bg-amber-100 disabled:opacity-50 transition-all"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Request Revision
+                    </button>
+                  )}
+                  {/* Back to Pending - when reviewing or revision_requested */}
+                  {(submission.status === 'reviewing' || submission.status === 'revision_requested') && (
+                    <button
+                      onClick={() => handleStatusChange('pending')}
+                      disabled={statusUpdating}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-all"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Back to Pending
+                    </button>
+                  )}
                 </div>
               )}
               {/* Auto-archiving indicator */}
@@ -824,8 +1088,43 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
                 {archiveError}
               </div>
             )}
+            {/* Action buttons row */}
+            <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-black/10">
+              {/* Revision round indicator */}
+              {(submission.revision_round ?? 1) > 1 && (
+                <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700">
+                  Round {submission.revision_round}
+                </span>
+              )}
+              {/* Delete button */}
+              {canDelete && (
+                <button
+                  onClick={() => setShowDeleteModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-all ml-auto"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  Delete
+                </button>
+              )}
+            </div>
           </div>
         </div>
+        {/* Resubmit Banner */}
+        {canResubmit && (
+          <div className="mt-4 bg-amber-50 border border-amber-300 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-800">Revision Requested</p>
+              <p className="text-xs text-amber-700 mt-0.5">A reviewer has requested changes. Please upload a revised video.</p>
+            </div>
+            <button
+              onClick={() => setShowResubmitModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors shadow-sm"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+              Resubmit Video
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -844,6 +1143,76 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
               </div>
             </div>
           </div>
+          {submission.embed_url?.includes('drive.google.com') && (() => {
+            const match = submission.embed_url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || submission.embed_url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+            const driveFileId = match ? match[1] : null;
+            if (!driveFileId) return null;
+            const downloadUrl = `https://drive.google.com/uc?export=download&id=${driveFileId}`;
+            return (
+              <div className="rounded-xl border border-black/10 bg-white/90 p-4 text-sm">
+                <p className="text-black/70 mb-2">
+                  If playback does not start, Google Drive may still be processing the video. You can download the file for offline playback.
+                </p>
+                <a
+                  href={downloadUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-[#061E26] font-medium hover:underline"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Download video
+                </a>
+              </div>
+            );
+          })()}
+          {/* Version History - past videos saved when submitter resubmits (hidden when approved since files are deleted) */}
+          {versions.length > 0 && submission.status !== 'approved' && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowVersions(!showVersions)}
+                className="w-full flex items-center justify-between p-4 hover:bg-black/5 transition-colors text-left"
+                aria-expanded={showVersions}
+              >
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 text-[#061E26]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-sm font-semibold text-black">Version History</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-black/10 text-black/60">{versions.length} version{versions.length !== 1 ? 's' : ''}</span>
+                </div>
+                <span className="text-xs text-black/50 mr-2">{showVersions ? 'Collapse' : 'Click to expand'}</span>
+                <svg className={`w-4 h-4 text-black/40 transition-transform flex-shrink-0 ${showVersions ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {showVersions && (
+                <div className="px-4 pb-4 space-y-2 border-t border-black/10">
+                  {versions.map((version) => {
+                    const viewUrl = version.embed_url || version.firebase_video_url || version.google_drive_url;
+                    return (
+                      <div key={version.id} className="flex items-center justify-between p-3 bg-black/5 rounded-lg mt-2 gap-3">
+                        <div className="min-w-0">
+                          <span className="text-sm font-medium text-black">Version {version.version_number}</span>
+                          <span className="text-xs text-black/50 ml-2">{new Date(version.created_at).toLocaleDateString()}</span>
+                          <span className={`text-xs ml-2 px-1.5 py-0.5 rounded ${version.video_source === 'firebase' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
+                            {version.video_source === 'firebase' ? 'Direct upload' : 'Google Drive'}
+                          </span>
+                        </div>
+                        {viewUrl && (
+                          <a href={viewUrl} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 text-xs font-medium text-[#061E26] hover:underline whitespace-nowrap">
+                            View video
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
           {canPostFeedback && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
               <div className="p-3 sm:p-5">
@@ -957,13 +1326,29 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
         <div className="xl:col-span-1">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden xl:sticky xl:top-6">
             <div className="p-3 sm:p-5">
-              <div className="flex items-center gap-2 mb-6">
+              <div className="flex items-center gap-2 mb-4">
                 <svg className="w-5 h-5 text-[#061E26]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
                 <h2 className="text-lg font-bold text-black">Feedback</h2>
-                <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-bold bg-[#061E26]/10 text-[#061E26] rounded-full">{comments.length}</span>
+                <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-bold bg-[#061E26]/10 text-[#061E26] rounded-full">{filteredComments.length}</span>
               </div>
+              {/* Round filter */}
+              {availableRounds.length > 1 && (
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-xs text-black/50">Filter by round:</span>
+                  <select
+                    value={roundFilter === 'all' ? 'all' : roundFilter}
+                    onChange={(e) => setRoundFilter(e.target.value === 'all' ? 'all' : parseInt(e.target.value, 10))}
+                    className="text-xs px-2 py-1 border border-black/20 rounded-md focus:outline-none focus:ring-1 focus:ring-[#061E26]"
+                  >
+                    <option value="all">All Rounds</option>
+                    {availableRounds.map(r => (
+                      <option key={r} value={r}>Round {r}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="space-y-3 sm:space-y-4 max-h-[600px] sm:max-h-[800px] xl:max-h-[1200px] overflow-y-auto pr-1 custom-scrollbar">
                 {rootComments.length === 0 ? (
                   <div className="text-center py-12">
@@ -977,17 +1362,24 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
                   rootComments.map((comment) => (
                     <div key={comment.id} className="bg-gradient-to-br from-white to-black/5 rounded-lg p-3 sm:p-4 border border-black/10 hover:border-[#061E26]/30 transition-colors">
                       <div className="flex items-start justify-between mb-2">
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1.5 text-xs font-mono font-semibold text-[#061E26] hover:text-black bg-[#061E26]/10 hover:bg-[#061E26]/20 px-2.5 py-1 rounded-md transition-colors"
-                          title="Jump to timestamp"
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          {formatTimestamp(comment.timestamp_seconds)}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1.5 text-xs font-mono font-semibold text-[#061E26] hover:text-black bg-[#061E26]/10 hover:bg-[#061E26]/20 px-2.5 py-1 rounded-md transition-colors"
+                            title="Jump to timestamp"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            {formatTimestamp(comment.timestamp_seconds)}
+                          </button>
+                          {availableRounds.length > 1 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-black/5 text-black/50 font-medium">
+                              R{comment.revision_round ?? 1}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <p className="text-sm text-black leading-relaxed">{comment.content}</p>
                       {comment.attachment_url && (
@@ -1238,6 +1630,138 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
               className="max-w-full max-h-[90vh] object-contain rounded-lg"
               onClick={(e) => e.stopPropagation()}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => !deleting && setShowDeleteModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-100 rounded-full">
+                <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              </div>
+              <h3 className="text-lg font-bold text-black">Delete Submission</h3>
+            </div>
+            <p className="text-sm text-black/70 mb-6">
+              This will permanently delete this submission, all its feedback, and version history. This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={handleDeleteSubmission}
+                disabled={deleting}
+                className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50 transition-colors"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deleting}
+                className="px-4 py-2.5 text-sm font-medium text-black/60 hover:text-black hover:bg-black/5 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Revision Request Modal */}
+      {showRevisionModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => !statusUpdating && setShowRevisionModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-amber-100 rounded-full">
+                <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+              </div>
+              <h3 className="text-lg font-bold text-black">Request Revision</h3>
+            </div>
+            <p className="text-sm text-black/70 mb-4">
+              Request the submitter to revise and resubmit their video. You can optionally provide a summary of the changes needed.
+            </p>
+            <textarea
+              value={revisionSummary}
+              onChange={(e) => setRevisionSummary(e.target.value)}
+              placeholder="Describe what changes are needed (optional)..."
+              rows={4}
+              className="w-full px-3 py-2 text-sm border border-black/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none mb-4"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={handleRequestRevision}
+                disabled={statusUpdating}
+                className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg disabled:opacity-50 transition-colors"
+              >
+                {statusUpdating ? 'Requesting...' : 'Request Revision'}
+              </button>
+              <button
+                onClick={() => { setShowRevisionModal(false); setRevisionSummary(''); }}
+                disabled={statusUpdating}
+                className="px-4 py-2.5 text-sm font-medium text-black/60 hover:text-black hover:bg-black/5 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Resubmit Modal */}
+      {showResubmitModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => !resubmitUploading && setShowResubmitModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-lg w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-[#061E26]/10 rounded-full">
+                <svg className="w-5 h-5 text-[#061E26]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+              </div>
+              <h3 className="text-lg font-bold text-black">Resubmit Video</h3>
+            </div>
+            <p className="text-sm text-black/70 mb-4">
+              Upload a revised video. Your current video will be saved in version history.
+            </p>
+
+            <div className="space-y-3">
+              <input
+                ref={resubmitFileInputRef}
+                type="file"
+                accept="video/*"
+                onChange={(e) => setResubmitFile(e.target.files?.[0] || null)}
+                className="hidden"
+              />
+              <button
+                onClick={() => resubmitFileInputRef.current?.click()}
+                disabled={resubmitUploading}
+                className="w-full py-4 border-2 border-dashed border-black/20 rounded-lg text-sm text-black/60 hover:border-[#061E26]/50 hover:text-[#061E26] transition-colors"
+              >
+                {resubmitFile ? resubmitFile.name : 'Click to select video file'}
+              </button>
+              {resubmitUploading && (
+                <div className="space-y-1">
+                  <div className="w-full bg-black/10 rounded-full h-2">
+                    <div className="bg-[#061E26] h-2 rounded-full transition-all" style={{ width: `${resubmitProgress}%` }} />
+                  </div>
+                  <p className="text-xs text-black/50 text-center">{Math.round(resubmitProgress)}% uploaded</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={handleResubmit}
+                disabled={resubmitUploading || !resubmitFile}
+                className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-[#061E26] to-black rounded-lg hover:shadow-lg disabled:opacity-50 transition-all"
+              >
+                {resubmitUploading ? 'Uploading...' : 'Resubmit'}
+              </button>
+              <button
+                onClick={() => { setShowResubmitModal(false); setResubmitFile(null); setResubmitProgress(0); }}
+                disabled={resubmitUploading}
+                className="px-4 py-2.5 text-sm font-medium text-black/60 hover:text-black hover:bg-black/5 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

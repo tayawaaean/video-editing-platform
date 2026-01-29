@@ -4,11 +4,7 @@ import { useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import { parseGoogleDriveUrl } from '@/lib/google-drive';
-import { uploadVideoToFirebase, isFirebaseConfigured, UploadProgress } from '@/lib/firebase';
-import type { VideoSource } from '@/types';
-
-type UploadMode = 'upload' | 'google_drive';
+import { uploadVideoToFirebase, deleteVideoFromFirebase, isFirebaseConfigured, UploadProgress } from '@/lib/firebase';
 
 export default function NewSubmissionPage() {
   const router = useRouter();
@@ -18,11 +14,6 @@ export default function NewSubmissionPage() {
   // Form state
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [uploadMode, setUploadMode] = useState<UploadMode>('upload');
-  
-  // Google Drive state
-  const [googleDriveUrl, setGoogleDriveUrl] = useState('');
-  const [urlError, setUrlError] = useState<string | null>(null);
   
   // Upload state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -47,20 +38,6 @@ export default function NewSubmissionPage() {
     }
   };
 
-  // Validate Google Drive URL on blur
-  const handleUrlBlur = () => {
-    if (!googleDriveUrl) {
-      setUrlError(null);
-      return;
-    }
-    const result = parseGoogleDriveUrl(googleDriveUrl);
-    if (!result.success) {
-      setUrlError(result.error || 'Invalid URL');
-    } else {
-      setUrlError(null);
-    }
-  };
-
   // Handle file selection
   const handleFileSelect = useCallback((file: File) => {
     // Validate file type
@@ -69,10 +46,10 @@ export default function NewSubmissionPage() {
       return;
     }
     
-    // Validate file size (5GB max)
-    const maxSize = 5 * 1024 * 1024 * 1024; // 5GB
+    // Validate file size (150MB max per file)
+    const maxSize = 150 * 1024 * 1024; // 150MB
     if (file.size > maxSize) {
-      setError('File size must be less than 5GB');
+      setError('File size must be 150MB or less');
       return;
     }
 
@@ -144,48 +121,20 @@ export default function NewSubmissionPage() {
     setLoading(true);
 
     try {
-      let requestBody: {
-        title: string;
-        description: string;
-        video_source: VideoSource;
-        google_drive_url?: string;
-        firebase_video_url?: string;
-        firebase_video_path?: string;
-        firebase_video_size?: number;
-      };
-
-      if (uploadMode === 'google_drive') {
-        // Validate Google Drive URL
-        const urlResult = parseGoogleDriveUrl(googleDriveUrl);
-        if (!urlResult.success) {
-          setUrlError(urlResult.error || 'Invalid URL');
-          setLoading(false);
-          return;
-        }
-
-        requestBody = {
-          title,
-          description,
-          video_source: 'google_drive',
-          google_drive_url: googleDriveUrl,
-        };
-      } else {
-        // Firebase upload mode
-        if (!uploadedVideoUrl || !uploadedVideoPath || !selectedFile) {
-          setError('Please upload a video first');
-          setLoading(false);
-          return;
-        }
-
-        requestBody = {
-          title,
-          description,
-          video_source: 'firebase',
-          firebase_video_url: uploadedVideoUrl,
-          firebase_video_path: uploadedVideoPath,
-          firebase_video_size: selectedFile.size,
-        };
+      if (!uploadedVideoUrl || !uploadedVideoPath || !selectedFile) {
+        setError('Please upload a video first');
+        setLoading(false);
+        return;
       }
+
+      const requestBody = {
+        title,
+        description,
+        video_source: 'firebase' as const,
+        firebase_video_url: uploadedVideoUrl,
+        firebase_video_path: uploadedVideoPath,
+        firebase_video_size: selectedFile.size,
+      };
 
       const response = await fetch('/api/submissions', {
         method: 'POST',
@@ -213,6 +162,25 @@ export default function NewSubmissionPage() {
     }
   };
 
+  // Handle changing the uploaded video (deletes old file from Firebase)
+  const handleChangeVideo = async () => {
+    // Delete the old file from Firebase if it exists
+    if (uploadedVideoPath) {
+      try {
+        await deleteVideoFromFirebase(uploadedVideoPath);
+      } catch (err) {
+        console.error('Failed to delete old video:', err);
+        // Continue anyway - orphaned file will be cleaned up eventually
+      }
+    }
+    
+    // Reset state to allow new upload
+    setSelectedFile(null);
+    setUploadedVideoUrl(null);
+    setUploadedVideoPath(null);
+    setUploadProgress(null);
+  };
+
   // Format file size
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -223,13 +191,7 @@ export default function NewSubmissionPage() {
 
   // Check if form is valid
   const isFormValid = () => {
-    if (!title.trim()) return false;
-    
-    if (uploadMode === 'google_drive') {
-      return googleDriveUrl.trim() && !urlError;
-    } else {
-      return uploadedVideoUrl && uploadedVideoPath;
-    }
+    return !!title.trim() && !!uploadedVideoUrl && !!uploadedVideoPath;
   };
 
   return (
@@ -310,53 +272,8 @@ export default function NewSubmissionPage() {
                 <p className="mt-2 text-xs text-black/50">{description.length}/5000 characters</p>
               </div>
 
-              {/* Upload Mode Toggle */}
-              <div>
-                <label className="block text-sm font-semibold text-black mb-3">
-                  Video Source <span className="text-red-500">*</span>
-                </label>
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setUploadMode('upload')}
-                    disabled={!firebaseReady}
-                    className={`flex-1 px-4 py-3 rounded-xl border-2 transition-all ${
-                      uploadMode === 'upload'
-                        ? 'border-[#061E26] bg-[#061E26]/5 text-[#061E26]'
-                        : 'border-black/20 text-black/60 hover:border-black/40'
-                    } ${!firebaseReady ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    <div className="flex items-center justify-center gap-2">
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                      </svg>
-                      <span className="font-medium">Upload Video</span>
-                    </div>
-                    {!firebaseReady && (
-                      <p className="text-xs mt-1 text-red-500">Firebase not configured</p>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setUploadMode('google_drive')}
-                    className={`flex-1 px-4 py-3 rounded-xl border-2 transition-all ${
-                      uploadMode === 'google_drive'
-                        ? 'border-[#061E26] bg-[#061E26]/5 text-[#061E26]'
-                        : 'border-black/20 text-black/60 hover:border-black/40'
-                    }`}
-                  >
-                    <div className="flex items-center justify-center gap-2">
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                      </svg>
-                      <span className="font-medium">Google Drive URL</span>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Upload Section */}
-              {uploadMode === 'upload' && firebaseReady && (
+              {/* Upload Section - direct file upload only */}
+              {firebaseReady && (
                 <div className="space-y-4">
                   {/* Drop Zone */}
                   {!uploadedVideoUrl && (
@@ -384,7 +301,7 @@ export default function NewSubmissionPage() {
                       <p className="text-sm text-black/60">
                         <span className="font-semibold text-[#061E26]">Click to upload</span> or drag and drop
                       </p>
-                      <p className="text-xs text-black/40 mt-1">MP4, MOV, WebM up to 5GB</p>
+                      <p className="text-xs text-black/40 mt-1">MP4, MOV, WebM up to 150MB</p>
                     </div>
                   )}
 
@@ -463,12 +380,7 @@ export default function NewSubmissionPage() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => {
-                            setSelectedFile(null);
-                            setUploadedVideoUrl(null);
-                            setUploadedVideoPath(null);
-                            setUploadProgress(null);
-                          }}
+                          onClick={handleChangeVideo}
                           className="text-green-600 hover:text-green-800 text-sm font-medium"
                         >
                           Change
@@ -486,40 +398,9 @@ export default function NewSubmissionPage() {
                 </div>
               )}
 
-              {/* Google Drive URL Section */}
-              {uploadMode === 'google_drive' && (
-                <div>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <svg className="h-5 w-5 text-black/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                      </svg>
-                    </div>
-                    <input
-                      type="url"
-                      value={googleDriveUrl}
-                      onChange={(e) => {
-                        setGoogleDriveUrl(e.target.value);
-                        setUrlError(null);
-                      }}
-                      onBlur={handleUrlBlur}
-                      className={`block w-full pl-12 pr-4 py-3 border rounded-xl shadow-sm placeholder-black/40 focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-[#061E26] text-sm transition-shadow ${
-                        urlError ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : 'border-black/20'
-                      }`}
-                      placeholder="https://drive.google.com/file/d/.../view"
-                    />
-                  </div>
-                  {urlError && (
-                    <div className="mt-2 flex items-center gap-2 text-sm text-red-600">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      {urlError}
-                    </div>
-                  )}
-                  <p className="mt-2 text-xs text-black/50">
-                    Paste a Google Drive sharing link. Make sure the video is set to &quot;Anyone with the link can view&quot;.
-                  </p>
+              {!firebaseReady && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  Firebase is not configured. Please contact an administrator to enable video uploads.
                 </div>
               )}
 
@@ -561,8 +442,7 @@ export default function NewSubmissionPage() {
         {/* Sidebar */}
         <div className="lg:col-span-1 space-y-6">
           {/* Upload Tips */}
-          {uploadMode === 'upload' && (
-            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 shadow-md ring-1 ring-inset ring-white/60">
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 shadow-md ring-1 ring-inset ring-white/60">
               <div className="flex items-start gap-3 mb-4">
                 <div className="h-9 w-9 rounded-full bg-blue-500/10 ring-1 ring-inset ring-blue-300/40 flex items-center justify-center">
                   <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -590,7 +470,7 @@ export default function NewSubmissionPage() {
                   <svg className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  <span>Up to 5GB file size</span>
+                  <span>Up to 150MB per file (1GB total storage limit)</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <svg className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -600,37 +480,6 @@ export default function NewSubmissionPage() {
                 </li>
               </ul>
             </div>
-          )}
-
-          {/* Google Drive Tips */}
-          {uploadMode === 'google_drive' && (
-            <div className="bg-gradient-to-br from-[#061E26]/5 to-black/5 rounded-2xl p-6 shadow-md ring-1 ring-inset ring-white/60">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="h-9 w-9 rounded-full bg-gradient-to-br from-[#061E26]/10 to-black/10 ring-1 ring-inset ring-[#061E26]/40 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-[#061E26]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-[#061E26]">Supported URL Formats</h3>
-                </div>
-              </div>
-              <ul className="space-y-2 text-xs text-black/80">
-                <li className="flex items-start gap-2">
-                  <svg className="w-4 h-4 text-[#061E26] mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                  <code className="font-mono bg-white/80 px-2 py-0.5 rounded text-[11px]">drive.google.com/file/d/ID/view</code>
-                </li>
-                <li className="flex items-start gap-2">
-                  <svg className="w-4 h-4 text-[#061E26] mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                  <code className="font-mono bg-white/80 px-2 py-0.5 rounded text-[11px]">drive.google.com/open?id=ID</code>
-                </li>
-              </ul>
-            </div>
-          )}
 
           {/* Quick Tips */}
           <div className="bg-white rounded-2xl p-6 border border-black/10 shadow-md">

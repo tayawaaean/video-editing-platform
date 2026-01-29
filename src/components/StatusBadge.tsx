@@ -18,6 +18,10 @@ const statusConfig: Record<SubmissionStatus, { label: string; className: string 
     label: 'Approved',
     className: 'bg-green-500/10 text-green-700 ring-green-500/20',
   },
+  revision_requested: {
+    label: 'Revision Requested',
+    className: 'bg-amber-500/10 text-amber-700 ring-amber-500/20',
+  },
 };
 
 export function StatusBadge({ status, size = 'md' }: StatusBadgeProps) {

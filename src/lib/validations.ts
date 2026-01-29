@@ -23,22 +23,11 @@ export const changePasswordSchema = z.object({
 });
 
 // Submission schemas
-export const submissionStatusSchema = z.enum(['pending', 'reviewing', 'approved']);
+export const submissionStatusSchema = z.enum(['pending', 'reviewing', 'approved', 'revision_requested']);
 export const videoSourceSchema = z.enum(['firebase', 'google_drive']);
 
-// Schema for Google Drive URL submission
-export const createSubmissionWithDriveSchema = z.object({
-  title: z.string().min(1, 'Title is required').max(200, 'Title must be 200 characters or less'),
-  description: z.string().max(5000, 'Description must be 5000 characters or less').optional(),
-  video_source: z.literal('google_drive'),
-  google_drive_url: z.string().url('Invalid URL').refine(
-    (url) => url.includes('drive.google.com'),
-    'Must be a Google Drive URL'
-  ),
-});
-
-// Schema for Firebase upload submission
-export const createSubmissionWithFirebaseSchema = z.object({
+// Schema for direct (Firebase) upload submission only
+export const createSubmissionSchema = z.object({
   title: z.string().min(1, 'Title is required').max(200, 'Title must be 200 characters or less'),
   description: z.string().max(5000, 'Description must be 5000 characters or less').optional(),
   video_source: z.literal('firebase'),
@@ -47,24 +36,23 @@ export const createSubmissionWithFirebaseSchema = z.object({
   firebase_video_size: z.number().int().min(0, 'File size must be non-negative'),
 });
 
-// Combined schema that accepts either Google Drive or Firebase
-export const createSubmissionSchema = z.discriminatedUnion('video_source', [
-  createSubmissionWithDriveSchema,
-  createSubmissionWithFirebaseSchema,
-]);
-
-// Legacy schema for backward compatibility (defaults to Google Drive)
-export const createSubmissionLegacySchema = z.object({
-  title: z.string().min(1, 'Title is required').max(200, 'Title must be 200 characters or less'),
-  description: z.string().max(5000, 'Description must be 5000 characters or less').optional(),
-  google_drive_url: z.string().url('Invalid URL').refine(
-    (url) => url.includes('drive.google.com'),
-    'Must be a Google Drive URL'
-  ),
-});
-
 export const updateSubmissionStatusSchema = z.object({
   status: submissionStatusSchema,
+  revision_summary: z.string().max(2000).optional(),
+});
+
+export const updateSubmissionMetadataSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(200, 'Title must be 200 characters or less').optional(),
+  description: z.string().max(5000, 'Description must be 5000 characters or less').optional(),
+});
+
+// Resubmit: direct (Firebase) upload only
+export const resubmitSchema = z.object({
+  video_source: z.literal('firebase'),
+  firebase_video_url: z.string().url('Invalid Firebase video URL'),
+  firebase_video_path: z.string().min(1, 'Firebase video path is required'),
+  firebase_video_size: z.number().int().min(0, 'File size must be non-negative'),
+  embed_url: z.string().url('Invalid embed URL'),
 });
 
 // Comment (feedback) schemas
@@ -91,3 +79,5 @@ export type CreateSubmissionInput = z.infer<typeof createSubmissionSchema>;
 export type UpdateSubmissionStatusInput = z.infer<typeof updateSubmissionStatusSchema>;
 export type CreateCommentInput = z.infer<typeof createCommentSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type UpdateSubmissionMetadataInput = z.infer<typeof updateSubmissionMetadataSchema>;
+export type ResubmitInput = z.infer<typeof resubmitSchema>;

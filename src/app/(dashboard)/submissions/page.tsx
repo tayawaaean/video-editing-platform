@@ -102,6 +102,7 @@ export default function MySubmissionsPage() {
     { value: '', label: 'All Status' },
     { value: 'pending', label: 'Pending' },
     { value: 'reviewing', label: 'In Review' },
+    { value: 'revision_requested', label: 'Revision Requested' },
     { value: 'approved', label: 'Approved' },
   ];
 

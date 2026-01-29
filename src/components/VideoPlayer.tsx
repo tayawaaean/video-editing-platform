@@ -60,8 +60,8 @@ export function VideoPlayer({
   const isGoogleDrive = isGoogleDriveEmbed(embedUrl);
   const driveFileId = isGoogleDrive ? extractDriveFileId(embedUrl) : null;
   
-  // Direct video mode state (for Google Drive)
-  const [useDirectMode, setUseDirectMode] = useState(false);
+  // Prefer direct/proxy mode for Google Drive so playback works even when Drive is still "processing" the file
+  const [useDirectMode, setUseDirectMode] = useState(!!driveFileId);
   const [directModeError, setDirectModeError] = useState(false);
   const [directModeLoading, setDirectModeLoading] = useState(false);
   
@@ -239,22 +239,6 @@ export function VideoPlayer({
     setDirectModeError(false);
   }, []);
 
-  // Toggle direct mode
-  const toggleDirectMode = useCallback(() => {
-    if (!driveFileId) return;
-    
-    if (useDirectMode) {
-      // Switch back to embed mode
-      setUseDirectMode(false);
-      setDirectModeError(false);
-    } else {
-      // Try direct mode
-      setUseDirectMode(true);
-      setDirectModeLoading(true);
-      setDirectModeError(false);
-    }
-  }, [driveFileId, useDirectMode]);
-
   // Get the video source URL
   const videoSrc = isGoogleDrive && useDirectMode && driveFileId 
     ? getDriveDirectUrl(driveFileId) 
@@ -267,61 +251,44 @@ export function VideoPlayer({
   if (useNativeVideo) {
     return (
       <div className={containerClass}>
-        <video
-          ref={videoRef}
-          src={videoSrc}
-          crossOrigin="anonymous"
-          title={title}
-          className="absolute inset-0 w-full h-full rounded-lg bg-black object-contain"
-          controls
-          playsInline
-          onError={handleVideoError}
-          onCanPlay={handleVideoCanPlay}
-        />
-        
-        {/* Loading indicator for direct mode */}
-        {directModeLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-            <div className="text-white text-center">
-              <svg className="animate-spin h-8 w-8 mx-auto mb-2" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-              </svg>
-              <span className="text-sm">Loading direct video...</span>
+          <video
+            ref={videoRef}
+            src={videoSrc}
+            crossOrigin="anonymous"
+            title={title}
+            className="absolute inset-0 w-full h-full rounded-lg bg-black object-contain"
+            controls
+            playsInline
+            onError={handleVideoError}
+            onCanPlay={handleVideoCanPlay}
+          />
+          
+          {/* Loading indicator for direct mode */}
+          {directModeLoading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+              <div className="text-white text-center">
+                <svg className="animate-spin h-8 w-8 mx-auto mb-2" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                <span className="text-sm">Loading direct video...</span>
+              </div>
             </div>
-          </div>
-        )}
-        
-        {/* Auto-capture indicator */}
-        {showCaptureIndicator && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="bg-black/70 text-white px-4 py-2 rounded-lg flex items-center gap-2 animate-pulse">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              <span className="text-sm font-medium">Frame Captured</span>
+          )}
+          
+          {/* Auto-capture indicator */}
+          {showCaptureIndicator && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="bg-black/70 text-white px-4 py-2 rounded-lg flex items-center gap-2 animate-pulse">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span className="text-sm font-medium">Frame Captured</span>
+              </div>
             </div>
-          </div>
-        )}
-        
-        {/* Mode indicator for Google Drive in direct mode */}
-        {isGoogleDrive && useDirectMode && !directModeLoading && (
-          <div className="absolute top-2 left-2 flex items-center gap-2">
-            <span className="bg-green-500/90 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              Auto-capture ON
-            </span>
-            <button
-              onClick={toggleDirectMode}
-              className="bg-black/50 hover:bg-black/70 text-white text-xs px-2 py-1 rounded-full transition-colors"
-            >
-              Switch to Embed
-            </button>
-          </div>
-        )}
+          )}
+          
       </div>
     );
   }

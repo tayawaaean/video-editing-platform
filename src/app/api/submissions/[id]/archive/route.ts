@@ -85,6 +85,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         googleDriveUrl: result.googleDriveUrl,
         embedUrl: result.embedUrl,
         firebaseDeleted: result.firebaseDeleted,
+        firebaseFilesDeleted: result.firebaseFilesDeleted,
       },
     });
   } catch (error) {

@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(npx next build:*)",
-      "Bash(git diff:*)"
+      "Bash(git diff:*)",
+      "Bash(ls:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

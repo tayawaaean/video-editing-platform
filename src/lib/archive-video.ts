@@ -1,6 +1,11 @@
 import 'server-only';
 
-import { getSubmissionById, updateSubmissionAfterArchive } from '@/lib/airtable';
+import {
+  getSubmissionById,
+  updateSubmissionAfterArchive,
+  getFirebasePathsForSubmission,
+  clearVersionsFirebaseFields,
+} from '@/lib/airtable';
 import { downloadFileFromFirebase, deleteFileFromFirebaseAdmin, getFileMetadata } from '@/lib/firebase-admin';
 import { uploadToGoogleDrive, isGoogleDriveConfigured } from '@/lib/google-drive-upload';
 
@@ -10,6 +15,7 @@ export interface ArchiveResult {
   googleDriveUrl?: string;
   embedUrl?: string;
   firebaseDeleted?: boolean;
+  firebaseFilesDeleted?: number;
   error?: string;
 }
 
@@ -40,6 +46,10 @@ export async function archiveVideoToGoogleDrive(
   if (!submission.firebase_video_path) {
     return { success: false, error: 'Firebase video path is missing' };
   }
+
+  // Collect all Firebase paths BEFORE updating Airtable (once we update, submission loses firebase path)
+  const allFirebasePaths = await getFirebasePathsForSubmission(submissionId);
+  console.log(`${logPrefix} Found ${allFirebasePaths.length} Firebase file(s) to delete`);
 
   // Get file metadata
   const metadata = await getFileMetadata(submission.firebase_video_path);
@@ -79,20 +89,30 @@ export async function archiveVideoToGoogleDrive(
     uploadResult.embedUrl
   );
 
-  // Delete from Firebase
-  console.log(`${logPrefix} Deleting from Firebase: ${submission.firebase_video_path}`);
-  const deleted = await deleteFileFromFirebaseAdmin(submission.firebase_video_path);
-  if (!deleted) {
-    console.warn(`${logPrefix} Warning: Failed to delete video from Firebase. Manual cleanup may be required.`);
+  // Delete all Firebase files (current + versions)
+  let deletedCount = 0;
+  for (const path of allFirebasePaths) {
+    console.log(`${logPrefix} Deleting from Firebase: ${path}`);
+    const deleted = await deleteFileFromFirebaseAdmin(path);
+    if (deleted) {
+      deletedCount++;
+    } else {
+      console.warn(`${logPrefix} Warning: Failed to delete ${path} from Firebase.`);
+    }
   }
 
-  console.log(`${logPrefix} Archive complete for submission ${submissionId}`);
+  // Clear Firebase fields from versions in Airtable
+  console.log(`${logPrefix} Clearing Firebase fields from versions`);
+  await clearVersionsFirebaseFields(submissionId);
+
+  console.log(`${logPrefix} Archive complete for submission ${submissionId}. Deleted ${deletedCount}/${allFirebasePaths.length} Firebase files.`);
 
   return {
     success: true,
     googleDriveFileId: uploadResult.fileId,
     googleDriveUrl: uploadResult.webViewLink,
     embedUrl: uploadResult.embedUrl,
-    firebaseDeleted: deleted,
+    firebaseDeleted: deletedCount > 0,
+    firebaseFilesDeleted: deletedCount,
   };
 }
