@@ -114,14 +114,14 @@ export default function AdminDashboardPage() {
     { value: '', label: 'All Status' },
     { value: 'pending', label: 'Pending' },
     { value: 'reviewing', label: 'In Review' },
-    { value: 'completed', label: 'Completed' },
+    { value: 'approved', label: 'Approved' },
   ];
 
   const stats = {
     total: submissions.length,
     pending: submissions.filter((s) => s.status === 'pending').length,
     reviewing: submissions.filter((s) => s.status === 'reviewing').length,
-    completed: submissions.filter((s) => s.status === 'completed').length,
+    approved: submissions.filter((s) => s.status === 'approved').length,
   };
 
   return (
@@ -166,8 +166,8 @@ export default function AdminDashboardPage() {
           )}
         />
         <StatCard
-          label="Completed"
-          value={stats.completed}
+          label="Approved"
+          value={stats.approved}
           tone="dark"
           icon={(
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -23,9 +23,37 @@ export const changePasswordSchema = z.object({
 });
 
 // Submission schemas
-export const submissionStatusSchema = z.enum(['pending', 'reviewing', 'completed']);
+export const submissionStatusSchema = z.enum(['pending', 'reviewing', 'approved']);
+export const videoSourceSchema = z.enum(['firebase', 'google_drive']);
 
-export const createSubmissionSchema = z.object({
+// Schema for Google Drive URL submission
+export const createSubmissionWithDriveSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(200, 'Title must be 200 characters or less'),
+  description: z.string().max(5000, 'Description must be 5000 characters or less').optional(),
+  video_source: z.literal('google_drive'),
+  google_drive_url: z.string().url('Invalid URL').refine(
+    (url) => url.includes('drive.google.com'),
+    'Must be a Google Drive URL'
+  ),
+});
+
+// Schema for Firebase upload submission
+export const createSubmissionWithFirebaseSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(200, 'Title must be 200 characters or less'),
+  description: z.string().max(5000, 'Description must be 5000 characters or less').optional(),
+  video_source: z.literal('firebase'),
+  firebase_video_url: z.string().url('Invalid Firebase video URL'),
+  firebase_video_path: z.string().min(1, 'Firebase video path is required'),
+});
+
+// Combined schema that accepts either Google Drive or Firebase
+export const createSubmissionSchema = z.discriminatedUnion('video_source', [
+  createSubmissionWithDriveSchema,
+  createSubmissionWithFirebaseSchema,
+]);
+
+// Legacy schema for backward compatibility (defaults to Google Drive)
+export const createSubmissionLegacySchema = z.object({
   title: z.string().min(1, 'Title is required').max(200, 'Title must be 200 characters or less'),
   description: z.string().max(5000, 'Description must be 5000 characters or less').optional(),
   google_drive_url: z.string().url('Invalid URL').refine(
@@ -45,6 +73,11 @@ export const createCommentSchema = z.object({
   content: z.string().max(2000, 'Comment must be 2000 characters or less').optional(),
   parent_comment_id: z.string().optional(),
   attachment_url: z.string().url('Invalid attachment URL').optional().or(z.string().startsWith('data:').optional()),
+  /** Pin on attachment image, normalized 0-1 */
+  attachment_pin_x: z.number().min(0).max(1).optional(),
+  attachment_pin_y: z.number().min(0).max(1).optional(),
+  /** Comment text for the pin */
+  attachment_pin_comment: z.string().max(500).optional(),
 }).refine((data) => (data.content && data.content.trim().length > 0) || data.attachment_url, {
   message: 'Either content or attachment is required',
   path: ['content'],

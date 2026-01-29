@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { submission_id, timestamp_seconds, content, parent_comment_id, attachment_url } = validationResult.data;
+    const { submission_id, timestamp_seconds, content, parent_comment_id, attachment_url, attachment_pin_x, attachment_pin_y, attachment_pin_comment } = validationResult.data;
 
     const submission = await getSubmissionById(submission_id);
     if (!submission) {
@@ -176,6 +176,8 @@ export async function POST(request: NextRequest) {
       content: content ?? '',
       parent_comment_id,
       attachment_url: finalAttachmentUrl,
+      ...(attachment_pin_x != null && attachment_pin_y != null && { attachment_pin_x, attachment_pin_y }),
+      ...(attachment_pin_comment && { attachment_pin_comment }),
     });
 
     return NextResponse.json({

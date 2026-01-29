@@ -173,10 +173,16 @@ export function VideoPlayer({
       if (!ctx) return false;
 
       ctx.drawImage(video, 0, 0);
-      const imageDataUrl = canvas.toDataURL('image/jpeg', 0.85);
       const timestamp_seconds = Math.floor(video.currentTime);
-      onFrameCapture({ timestamp_seconds, imageDataUrl });
-      return true;
+      try {
+        const imageDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        onFrameCapture({ timestamp_seconds, imageDataUrl });
+        return true;
+      } catch {
+        // Tainted canvas (cross-origin video without CORS). Send timestamp only; UI can use manual screenshot.
+        onFrameCapture({ timestamp_seconds, imageDataUrl: '' });
+        return true;
+      }
     };
 
     (window as Window & { __captureFrame?: () => boolean }).__captureFrame = captureFrame;
@@ -203,11 +209,13 @@ export function VideoPlayer({
           if (!ctx) return;
 
           ctx.drawImage(video, 0, 0);
-          const imageDataUrl = canvas.toDataURL('image/jpeg', 0.85);
           const timestamp_seconds = Math.floor(video.currentTime);
-          onFrameCapture({ timestamp_seconds, imageDataUrl });
-          
-          // Show capture indicator
+          try {
+            const imageDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            onFrameCapture({ timestamp_seconds, imageDataUrl });
+          } catch {
+            onFrameCapture({ timestamp_seconds, imageDataUrl: '' });
+          }
           setShowCaptureIndicator(true);
           setTimeout(() => setShowCaptureIndicator(false), 1500);
         }
@@ -252,15 +260,19 @@ export function VideoPlayer({
     ? getDriveDirectUrl(driveFileId) 
     : embedUrl;
 
+  // 9:16 portrait container for mobile/social format videos
+  const containerClass = 'relative w-full aspect-[9/16] max-h-[min(85vh,800px)]';
+
   // Render native video (for non-Drive URLs or Drive in direct mode)
   if (useNativeVideo) {
     return (
-      <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+      <div className={containerClass}>
         <video
           ref={videoRef}
           src={videoSrc}
+          crossOrigin="anonymous"
           title={title}
-          className="absolute inset-0 w-full h-full rounded-lg bg-black"
+          className="absolute inset-0 w-full h-full rounded-lg bg-black object-contain"
           controls
           playsInline
           onError={handleVideoError}
@@ -316,7 +328,7 @@ export function VideoPlayer({
 
   // Render iframe embed (for Google Drive when direct mode is off or failed)
   return (
-    <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+    <div className={containerClass}>
       <iframe
         ref={iframeRef}
         src={embedUrl}

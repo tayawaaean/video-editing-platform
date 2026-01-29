@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSubmissionById, updateSubmissionStatus } from '@/lib/airtable';
 import { updateSubmissionStatusSchema } from '@/lib/validations';
+import { archiveVideoToGoogleDrive } from '@/lib/archive-video';
+
+export const maxDuration = 120;
 
 // GET /api/submissions/[id] - Get a single submission
 export async function GET(
@@ -80,6 +84,25 @@ export async function PATCH(
 
     // Update in Airtable
     const updatedSubmission = await updateSubmissionStatus(id, status);
+
+    // Auto-archive to Google Drive when approved and video is on Firebase
+    if (
+      status === 'approved' &&
+      submission.video_source === 'firebase' &&
+      submission.firebase_video_path
+    ) {
+      after(async () => {
+        try {
+          console.log(`[auto-archive] Starting archive for submission ${id}`);
+          const result = await archiveVideoToGoogleDrive(id, '[auto-archive]');
+          if (!result.success) {
+            console.error(`[auto-archive] Failed for submission ${id}: ${result.error}`);
+          }
+        } catch (err) {
+          console.error(`[auto-archive] Error for submission ${id}:`, err);
+        }
+      });
+    }
 
     return NextResponse.json({ data: updatedSubmission });
   } catch (error) {

@@ -94,7 +94,7 @@ export default function ReviewPage() {
     { value: '', label: 'All Status' },
     { value: 'pending', label: 'Pending Review' },
     { value: 'reviewing', label: 'In Review' },
-    { value: 'completed', label: 'Completed' },
+    { value: 'approved', label: 'Approved' },
   ];
 
   return (

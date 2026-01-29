@@ -86,3 +86,10 @@ body {
   ring-color: #061E26;
   ring-offset: 2px;
 }
+
+/* Ensure all text inputs are LTR by default */
+input, textarea, select {
+  direction: ltr !important;
+  text-align: left !important;
+  unicode-bidi: plaintext;
+}

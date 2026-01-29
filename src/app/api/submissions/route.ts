@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSubmissions, createSubmission } from '@/lib/airtable';
-import { createSubmissionSchema } from '@/lib/validations';
+import { createSubmissionSchema, createSubmissionLegacySchema } from '@/lib/validations';
 import { parseGoogleDriveUrl } from '@/lib/google-drive';
-import type { Submission } from '@/types';
+import type { Submission, VideoSource } from '@/types';
 
 // GET /api/submissions - List submissions (filtered by role)
 export async function GET(request: NextRequest) {
@@ -49,34 +49,98 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     
-    // Validate input
-    const validationResult = createSubmissionSchema.safeParse(body);
-    if (!validationResult.success) {
-      return NextResponse.json(
-        { error: validationResult.error.issues[0].message },
-        { status: 400 }
-      );
-    }
+    // Try the new schema first, then fall back to legacy
+    let validatedData: {
+      title: string;
+      description?: string;
+      video_source: VideoSource;
+      google_drive_url?: string;
+      firebase_video_url?: string;
+      firebase_video_path?: string;
+      embed_url: string;
+    };
 
-    const { title, description, google_drive_url } = validationResult.data;
+    // Check if it's the new format with video_source
+    if (body.video_source) {
+      const validationResult = createSubmissionSchema.safeParse(body);
+      if (!validationResult.success) {
+        return NextResponse.json(
+          { error: validationResult.error.issues[0].message },
+          { status: 400 }
+        );
+      }
 
-    // Parse and validate Google Drive URL
-    const driveResult = parseGoogleDriveUrl(google_drive_url);
-    if (!driveResult.success) {
-      return NextResponse.json(
-        { error: driveResult.error },
-        { status: 400 }
-      );
+      const data = validationResult.data;
+      
+      if (data.video_source === 'google_drive') {
+        // Parse and validate Google Drive URL
+        const driveResult = parseGoogleDriveUrl(data.google_drive_url);
+        if (!driveResult.success) {
+          return NextResponse.json(
+            { error: driveResult.error },
+            { status: 400 }
+          );
+        }
+        
+        validatedData = {
+          title: data.title,
+          description: data.description,
+          video_source: 'google_drive',
+          google_drive_url: data.google_drive_url,
+          embed_url: driveResult.embedUrl!,
+        };
+      } else {
+        // Firebase upload
+        validatedData = {
+          title: data.title,
+          description: data.description,
+          video_source: 'firebase',
+          firebase_video_url: data.firebase_video_url,
+          firebase_video_path: data.firebase_video_path,
+          embed_url: data.firebase_video_url, // Use Firebase URL as embed URL
+        };
+      }
+    } else {
+      // Legacy format - assume Google Drive
+      const validationResult = createSubmissionLegacySchema.safeParse(body);
+      if (!validationResult.success) {
+        return NextResponse.json(
+          { error: validationResult.error.issues[0].message },
+          { status: 400 }
+        );
+      }
+
+      const { title, description, google_drive_url } = validationResult.data;
+
+      // Parse and validate Google Drive URL
+      const driveResult = parseGoogleDriveUrl(google_drive_url);
+      if (!driveResult.success) {
+        return NextResponse.json(
+          { error: driveResult.error },
+          { status: 400 }
+        );
+      }
+
+      validatedData = {
+        title,
+        description,
+        video_source: 'google_drive',
+        google_drive_url,
+        embed_url: driveResult.embedUrl!,
+      };
     }
 
     // Create submission in Airtable
     try {
       const submission = await createSubmission({
-        title,
-        description: description || '',
-        google_drive_url,
-        embed_url: driveResult.embedUrl!,
+        title: validatedData.title,
+        description: validatedData.description || '',
+        google_drive_url: validatedData.google_drive_url,
+        embed_url: validatedData.embed_url,
         submitter_uid: userId,
+        video_source: validatedData.video_source,
+        firebase_video_url: validatedData.firebase_video_url,
+        firebase_video_path: validatedData.firebase_video_path,
       });
 
       console.log('Submission created successfully in Airtable:', submission.id);

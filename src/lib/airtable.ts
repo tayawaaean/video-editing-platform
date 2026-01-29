@@ -175,6 +175,24 @@ export async function updateUserRole(recordId: string, role: User['role']): Prom
 
 // ==================== SUBMISSIONS ====================
 
+// Helper function to map Airtable record to Submission object
+function mapRecordToSubmission(record: AirtableRecord<SubmissionFields>): Submission {
+  return {
+    id: record.id,
+    title: record.fields.title,
+    description: record.fields.description,
+    google_drive_url: record.fields.google_drive_url,
+    embed_url: record.fields.embed_url,
+    submitter_uid: record.fields.submitter_uid,
+    status: record.fields.status,
+    video_source: record.fields.video_source || 'google_drive', // Default for legacy records
+    firebase_video_path: record.fields.firebase_video_path,
+    firebase_video_url: record.fields.firebase_video_url,
+    created_at: record.fields.created_at,
+    updated_at: record.fields.updated_at,
+  };
+}
+
 export async function getSubmissions(
   userUid?: string,
   status?: string
@@ -213,17 +231,7 @@ export async function getSubmissions(
   const data = await response.json();
   const records: AirtableRecord<SubmissionFields>[] = data.records;
   
-  return records.map(record => ({
-    id: record.id,
-    title: record.fields.title,
-    description: record.fields.description,
-    google_drive_url: record.fields.google_drive_url,
-    embed_url: record.fields.embed_url,
-    submitter_uid: record.fields.submitter_uid,
-    status: record.fields.status,
-    created_at: record.fields.created_at,
-    updated_at: record.fields.updated_at,
-  }));
+  return records.map(mapRecordToSubmission);
 }
 
 export async function getSubmissionById(id: string): Promise<Submission | null> {
@@ -243,17 +251,7 @@ export async function getSubmissionById(id: string): Promise<Submission | null> 
   }
   
   const record: AirtableRecord<SubmissionFields> = await response.json();
-  return {
-    id: record.id,
-    title: record.fields.title,
-    description: record.fields.description,
-    google_drive_url: record.fields.google_drive_url,
-    embed_url: record.fields.embed_url,
-    submitter_uid: record.fields.submitter_uid,
-    status: record.fields.status,
-    created_at: record.fields.created_at,
-    updated_at: record.fields.updated_at,
-  };
+  return mapRecordToSubmission(record);
 }
 
 export async function createSubmission(
@@ -262,17 +260,37 @@ export async function createSubmission(
   const url = `${BASE_URL}/${AIRTABLE_TABLE_SUBMISSIONS}`;
   const now = new Date().toISOString().split('T')[0];
   
+  // Build fields object. Only send video_source and Firebase fields for Firebase submissions
+  // so bases without these columns (legacy) still work for Google Drive submissions.
+  const fields: Record<string, unknown> = {
+    title: submission.title,
+    description: submission.description || '',
+    embed_url: submission.embed_url,
+    submitter_uid: submission.submitter_uid,
+    status: 'pending',
+    created_at: now,
+    updated_at: now,
+  };
+
+  if (submission.google_drive_url) {
+    fields.google_drive_url = submission.google_drive_url;
+  }
+
+  // New columns required for Firebase uploads; omit for legacy Airtable bases
+  if (submission.video_source === 'firebase') {
+    fields.video_source = submission.video_source;
+    if (submission.firebase_video_url) {
+      fields.firebase_video_url = submission.firebase_video_url;
+    }
+    if (submission.firebase_video_path) {
+      fields.firebase_video_path = submission.firebase_video_path;
+    }
+  }
+  
   const response = await fetchWithRetry(url, {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({
-      fields: {
-        ...submission,
-        status: 'pending',
-        created_at: now,
-        updated_at: now,
-      },
-    }),
+    body: JSON.stringify({ fields }),
   });
   
   if (!response.ok) {
@@ -281,17 +299,7 @@ export async function createSubmission(
   }
   
   const record: AirtableRecord<SubmissionFields> = await response.json();
-  return {
-    id: record.id,
-    title: record.fields.title,
-    description: record.fields.description,
-    google_drive_url: record.fields.google_drive_url,
-    embed_url: record.fields.embed_url,
-    submitter_uid: record.fields.submitter_uid,
-    status: record.fields.status,
-    created_at: record.fields.created_at,
-    updated_at: record.fields.updated_at,
-  };
+  return mapRecordToSubmission(record);
 }
 
 export async function updateSubmissionStatus(
@@ -317,17 +325,43 @@ export async function updateSubmissionStatus(
   }
   
   const record: AirtableRecord<SubmissionFields> = await response.json();
-  return {
-    id: record.id,
-    title: record.fields.title,
-    description: record.fields.description,
-    google_drive_url: record.fields.google_drive_url,
-    embed_url: record.fields.embed_url,
-    submitter_uid: record.fields.submitter_uid,
-    status: record.fields.status,
-    created_at: record.fields.created_at,
-    updated_at: record.fields.updated_at,
-  };
+  return mapRecordToSubmission(record);
+}
+
+/**
+ * Update submission after archiving to Google Drive
+ * Clears Firebase fields and sets Google Drive URL
+ */
+export async function updateSubmissionAfterArchive(
+  id: string,
+  googleDriveUrl: string,
+  embedUrl: string
+): Promise<Submission> {
+  const url = `${BASE_URL}/${AIRTABLE_TABLE_SUBMISSIONS}/${id}`;
+  
+  const response = await fetchWithRetry(url, {
+    method: 'PATCH',
+    headers: getHeaders(),
+    body: JSON.stringify({
+      fields: {
+        google_drive_url: googleDriveUrl,
+        embed_url: embedUrl,
+        video_source: 'google_drive',
+        // Clear Firebase fields by setting to empty (Airtable will remove them)
+        firebase_video_url: '',
+        firebase_video_path: '',
+        updated_at: new Date().toISOString().split('T')[0],
+      },
+    }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Airtable error: ${JSON.stringify(error)}`);
+  }
+  
+  const record: AirtableRecord<SubmissionFields> = await response.json();
+  return mapRecordToSubmission(record);
 }
 
 // ==================== FEEDBACK (Comments) ====================
@@ -391,6 +425,9 @@ export async function getCommentsBySubmission(submissionId: string): Promise<Com
       content: record.fields.content || '',
       parent_comment_id: parentCommentId,
       attachment_url: attachmentUrl,
+      attachment_pin_x: record.fields.attachment_pin_x,
+      attachment_pin_y: record.fields.attachment_pin_y,
+      attachment_pin_comment: record.fields.attachment_pin_comment,
       created_at: record.fields.created_at,
     };
   });
@@ -409,10 +446,8 @@ export async function createComment(comment: Omit<CommentFields, 'created_at'>):
   };
 
   // Only include parent_comment_id if it exists
-  // If the field is a "Link to another record" type in Airtable, it expects an array
   if (comment.parent_comment_id) {
-    // Try array format first (for linked record fields)
-    fields.parent_comment_id = [comment.parent_comment_id];
+    fields.parent_comment_id = comment.parent_comment_id;
   }
 
   // Format attachment for Airtable's Attachment field type
@@ -420,6 +455,16 @@ export async function createComment(comment: Omit<CommentFields, 'created_at'>):
   // The URL must be publicly accessible - Airtable will fetch and store the file
   if (comment.attachment_url && comment.attachment_url.startsWith('http')) {
     fields.attachment_url = [{ url: comment.attachment_url }];
+  }
+
+  // Pin-on-frame (Loom-style): add Number fields "attachment_pin_x" and "attachment_pin_y" (0-1) to Feedback table in Airtable
+  // Also add "attachment_pin_comment" (Long text) field for pin comments
+  if (comment.attachment_pin_x != null && comment.attachment_pin_y != null) {
+    fields.attachment_pin_x = comment.attachment_pin_x;
+    fields.attachment_pin_y = comment.attachment_pin_y;
+  }
+  if (comment.attachment_pin_comment) {
+    fields.attachment_pin_comment = comment.attachment_pin_comment;
   }
 
   const response = await fetchWithRetry(url, {
@@ -467,8 +512,72 @@ export async function createComment(comment: Omit<CommentFields, 'created_at'>):
     content: record.fields.content || '',
     parent_comment_id: parentCommentId,
     attachment_url: attachmentUrl,
+    attachment_pin_x: record.fields.attachment_pin_x,
+    attachment_pin_y: record.fields.attachment_pin_y,
+    attachment_pin_comment: record.fields.attachment_pin_comment,
     created_at: record.fields.created_at,
   };
+}
+
+export async function getCommentById(commentId: string): Promise<Comment | null> {
+  const url = `${BASE_URL}/${encodeURIComponent(AIRTABLE_TABLE_FEEDBACK)}/${commentId}`;
+
+  const response = await fetchWithRetry(url, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) return null;
+    const errorText = await response.text();
+    throw new Error(`Airtable error (${response.status}): ${errorText}`);
+  }
+
+  const record: AirtableRecord<CommentFields> = await response.json();
+
+  let attachmentUrl: string | undefined;
+  const attachmentField = record.fields.attachment_url;
+  if (Array.isArray(attachmentField) && attachmentField.length > 0) {
+    attachmentUrl = attachmentField[0]?.url;
+  } else if (typeof attachmentField === 'string') {
+    attachmentUrl = attachmentField;
+  }
+
+  let parentCommentId: string | undefined;
+  const parentField = record.fields.parent_comment_id;
+  if (Array.isArray(parentField) && parentField.length > 0) {
+    parentCommentId = parentField[0];
+  } else if (typeof parentField === 'string') {
+    parentCommentId = parentField;
+  }
+
+  return {
+    id: record.id,
+    submission_id: record.fields.submission_id,
+    user_uid: record.fields.user_uid,
+    timestamp_seconds: record.fields.timestamp_seconds,
+    content: record.fields.content || '',
+    parent_comment_id: parentCommentId,
+    attachment_url: attachmentUrl,
+    attachment_pin_x: record.fields.attachment_pin_x,
+    attachment_pin_y: record.fields.attachment_pin_y,
+    attachment_pin_comment: record.fields.attachment_pin_comment,
+    created_at: record.fields.created_at,
+  };
+}
+
+export async function deleteComment(commentId: string): Promise<void> {
+  const url = `${BASE_URL}/${encodeURIComponent(AIRTABLE_TABLE_FEEDBACK)}/${commentId}`;
+
+  const response = await fetchWithRetry(url, {
+    method: 'DELETE',
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Airtable error (${response.status}): ${errorText}`);
+  }
 }
 
 // ==================== HELPERS ====================

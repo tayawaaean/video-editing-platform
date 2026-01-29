@@ -14,9 +14,9 @@ const statusConfig: Record<SubmissionStatus, { label: string; className: string 
     label: 'In Review',
     className: 'bg-[#061E26]/10 text-[#061E26] ring-[#061E26]/20',
   },
-  completed: {
-    label: 'Completed',
-    className: 'bg-black/10 text-black/70 ring-black/20',
+  approved: {
+    label: 'Approved',
+    className: 'bg-green-500/10 text-green-700 ring-green-500/20',
   },
 };
 

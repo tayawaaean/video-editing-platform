@@ -1,37 +1,40 @@
 ---
 name: Video Upload Workflow
-overview: Implement a video upload workflow where submitters upload to Supabase Storage, and upon approval, videos are archived to Google Drive with automatic cleanup.
+overview: Implement a video upload workflow where submitters upload to Firebase Storage, and upon approval, videos are archived to Google Drive with automatic cleanup.
 todos:
-  - id: supabase-bucket
-    content: Create Supabase Storage bucket and set policies
-    status: pending
+  - id: firebase-setup
+    content: Set up Firebase project and Storage bucket
+    status: completed
+  - id: firebase-lib
+    content: Create Firebase config and storage utilities
+    status: completed
   - id: types-update
-    content: Add video_source and supabase_video_path to Submission types
-    status: pending
+    content: Add video_source and firebase_video_path to Submission types
+    status: completed
   - id: upload-api
-    content: Create /api/upload endpoint for Supabase Storage uploads
-    status: pending
+    content: Create /api/upload endpoint for Firebase Storage uploads
+    status: completed
   - id: submission-form
     content: Add file upload component with drag-drop and progress
-    status: pending
+    status: completed
   - id: google-service-account
     content: Set up Google Drive Service Account and env vars
-    status: pending
+    status: completed
   - id: drive-upload-lib
     content: Create google-drive-upload.ts with upload and folder functions
-    status: pending
+    status: completed
   - id: archive-api
     content: Create /api/submissions/[id]/archive endpoint
-    status: pending
+    status: completed
   - id: finalize-button
     content: Add Finalize button to submission detail page
-    status: pending
+    status: completed
   - id: videoplayer-update
     content: Update VideoPlayer to detect and handle both sources
-    status: pending
+    status: completed
   - id: airtable-update
     content: Update Airtable functions for new submission fields
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -41,28 +44,28 @@ isProject: false
 
 Implement a complete video submission workflow:
 
-1. Submitter uploads video directly to Supabase Storage
+1. Submitter uploads video directly to Firebase Storage (5GB free, no file size limit)
 2. Reviewer watches and reviews the video
 3. On approval, admin clicks "Finalize" to archive to Google Drive
-4. Supabase file is deleted, submission switches to Google Drive embed
+4. Firebase file is deleted, submission switches to Google Drive embed
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     subgraph submit [Submission Phase]
-        A[Submitter] -->|Upload| B[Supabase Storage]
+        A[Submitter] -->|Upload| B[Firebase Storage]
         B --> C[Create Submission in Airtable]
     end
     
     subgraph review [Review Phase]
-        D[Reviewer] -->|Watch from Supabase URL| E[Review and Approve]
+        D[Reviewer] -->|Watch from Firebase URL| E[Review and Approve]
     end
     
     subgraph archive [Archive Phase]
         F[Admin clicks Finalize] --> G[Upload to Google Drive]
         G --> H[Update Airtable with Drive URL]
-        H --> I[Delete from Supabase]
+        H --> I[Delete from Firebase]
     end
     
     submit --> review
@@ -73,25 +76,66 @@ flowchart LR
 
 ## Implementation Steps
 
-### Phase 1: Supabase Storage Setup
+### Phase 1: Firebase Setup
 
-**1.1 Create Storage Bucket**
+**1.1 Create Firebase Project**
 
-- Create a `videos` bucket in Supabase Dashboard
-- Set bucket policy: authenticated users can upload, public can read
-- Add file size limit (recommend 500MB-2GB depending on plan)
+1. Go to [Firebase Console](https://console.firebase.google.com)
+2. Create new project (or use existing)
+3. Go to "Build" > "Storage"
+4. Click "Get Started" and choose production mode
+5. Select a location (us-central1 recommended)
 
-**1.2 Update Types** - `[src/types/index.ts](src/types/index.ts)`
+**1.2 Configure Storage Rules**
+In Firebase Console > Storage > Rules:
 
-- Add `video_source: 'supabase' | 'google_drive'` to Submission interface
-- Add `supabase_video_path?: string` for Supabase file reference
+```javascript
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /videos/{allPaths=**} {
+      allow read: if true;  // Public read for video playback
+      allow write: if request.auth != null;  // Auth required for upload
+    }
+  }
+}
+```
+
+**1.3 Get Firebase Config**
+
+- Go to Project Settings > General > Your apps
+- Add a Web app if not exists
+- Copy the config object
+
+**1.4 Environment Variables**
+Add to `.env.local`:
+
+```
+NEXT_PUBLIC_FIREBASE_API_KEY=...
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=...
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
+NEXT_PUBLIC_FIREBASE_APP_ID=...
+```
+
+**1.5 Create Firebase Library** - `src/lib/firebase.ts`
+
+- Initialize Firebase app
+- Export storage instance
+- Helper functions for upload/delete
+
+**1.6 Update Types** - `[src/types/index.ts](src/types/index.ts)`
+
+- Add `video_source: 'firebase' | 'google_drive'` to Submission interface
+- Add `firebase_video_path?: string` for Firebase file reference
 
 ### Phase 2: Video Upload in Submission Form
 
 **2.1 Create Upload API** - `src/app/api/upload/route.ts`
 
 - Handle multipart form upload
-- Upload to Supabase Storage bucket
+- Upload to Firebase Storage using Admin SDK
 - Return public URL and file path
 
 **2.2 Update Submission Form** - `[src/app/(dashboard)/submissions/new/page.tsx](src/app/(dashboard)`/submissions/new/page.tsx)

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { StatusBadge, PageLoading } from '@/components';
 import { VideoPlayer } from '@/components/VideoPlayer';
+import { FrameAnnotationEditor } from '@/components/FrameAnnotationEditor';
 import { formatTimestamp } from '@/lib/google-drive';
 import type { Submission, Comment, SubmissionStatus } from '@/types';
 
@@ -29,6 +30,13 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
   const [replyTimestamp, setReplyTimestamp] = useState('0:00');
   const [replyAttachment, setReplyAttachment] = useState<File | null>(null);
   const [replyAttachmentPreview, setReplyAttachmentPreview] = useState<string | null>(null);
+  const [replyAttachmentDataUrl, setReplyAttachmentDataUrl] = useState<string | null>(null);
+  const [commentPinX, setCommentPinX] = useState<number | null>(null);
+  const [commentPinY, setCommentPinY] = useState<number | null>(null);
+  const [commentPinComment, setCommentPinComment] = useState<string | null>(null);
+  const [replyPinX, setReplyPinX] = useState<number | null>(null);
+  const [replyPinY, setReplyPinY] = useState<number | null>(null);
+  const [replyPinComment, setReplyPinComment] = useState<string | null>(null);
   const [showTimestampModal, setShowTimestampModal] = useState(false);
   const [isReplyTimestamp, setIsReplyTimestamp] = useState(false);
 
@@ -36,10 +44,19 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [frameCapturing, setFrameCapturing] = useState(false);
   const [frameCaptureError, setFrameCaptureError] = useState<string | null>(null);
+  const [archiving, setArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
 
   const roleLower = user?.role?.toLowerCase();
-  const canReview = roleLower === 'reviewer' || roleLower === 'admin';
+  const isAdmin = roleLower === 'admin';
+  const canReview = roleLower === 'reviewer' || isAdmin;
   const canPostFeedback = canReview;
+  
+  // Check if submission can be archived (admin only, approved status, firebase source)
+  const canArchive = isAdmin && 
+    submission?.status === 'approved' && 
+    submission?.video_source === 'firebase' &&
+    submission?.firebase_video_path;
 
   const getRoleDashboardPath = () => {
     if (!user) return '/admin/dashboard';
@@ -102,6 +119,40 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
     return () => clearInterval(interval);
   }, [fetchComments, fetchSubmission]);
 
+  // Check if auto-archive is in progress (approved + still on firebase)
+  const isAutoArchiving = submission?.status === 'approved' &&
+    submission?.video_source === 'firebase' &&
+    !!submission?.firebase_video_path;
+
+  // Retry archive submission to Google Drive (manual retry for admins)
+  const handleArchive = async () => {
+    if (!canArchive || archiving) return;
+
+    setArchiving(true);
+    setArchiveError(null);
+
+    try {
+      const response = await fetch(`/api/submissions/${submissionId}/archive`, {
+        method: 'POST',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to archive submission');
+      }
+
+      // Refresh submission data
+      await fetchSubmission();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to archive';
+      setArchiveError(errorMessage);
+      console.error('Archive error:', err);
+    } finally {
+      setArchiving(false);
+    }
+  };
+
   const parseTimestampInput = (input: string): number => {
     const parts = input.split(':').map(p => parseInt(p, 10) || 0);
     if (parts.length === 2) return parts[0] * 60 + parts[1];
@@ -128,13 +179,38 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
   const [showScreenshotModal, setShowScreenshotModal] = useState(false);
   const [capturedTimestamp, setCapturedTimestamp] = useState<number>(0);
 
+  const [showAnnotationModal, setShowAnnotationModal] = useState(false);
+  const [annotationImageDataUrl, setAnnotationImageDataUrl] = useState<string | null>(null);
+  const [annotationIsReply, setAnnotationIsReply] = useState(false);
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
+
   const handleFrameCapture = useCallback((payload: { timestamp_seconds: number; imageDataUrl: string }) => {
-    setCommentTimestamp(formatTimestampFromSeconds(payload.timestamp_seconds));
-    setCommentAttachmentPreview(payload.imageDataUrl);
-    setCommentAttachmentDataUrl(payload.imageDataUrl);
-    setCommentAttachment(null);
+    const timestampStr = formatTimestampFromSeconds(payload.timestamp_seconds);
+    const hasImage = !!payload.imageDataUrl;
+
+    if (replyingTo) {
+      setReplyTimestamp(timestampStr);
+      if (hasImage) {
+        setReplyAttachmentPreview(payload.imageDataUrl);
+        setReplyAttachmentDataUrl(payload.imageDataUrl);
+        setReplyAttachment(null);
+      } else {
+        setReplyAttachmentPreview(null);
+        setReplyAttachmentDataUrl(null);
+      }
+    } else {
+      setCommentTimestamp(timestampStr);
+      if (hasImage) {
+        setCommentAttachmentPreview(payload.imageDataUrl);
+        setCommentAttachmentDataUrl(payload.imageDataUrl);
+        setCommentAttachment(null);
+      } else {
+        setCommentAttachmentPreview(null);
+        setCommentAttachmentDataUrl(null);
+      }
+    }
     setFrameCaptureError(null);
-  }, []);
+  }, [replyingTo]);
 
   // Single "Capture Frame" button handler - smart behavior based on video type
   const handleCaptureFrameClick = async () => {
@@ -237,11 +313,65 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
     if (isReply) {
       setReplyAttachment(null);
       setReplyAttachmentPreview(null);
+      setReplyAttachmentDataUrl(null);
+      setReplyPinX(null);
+      setReplyPinY(null);
+      setReplyPinComment(null);
     } else {
       setCommentAttachment(null);
       setCommentAttachmentPreview(null);
       setCommentAttachmentDataUrl(null);
+      setCommentPinX(null);
+      setCommentPinY(null);
+      setCommentPinComment(null);
     }
+  };
+
+  const openAnnotationEditor = (isReply: boolean) => {
+    const dataUrl = isReply
+      ? (replyAttachmentDataUrl || replyAttachmentPreview)
+      : (commentAttachmentDataUrl || commentAttachmentPreview);
+    if (!dataUrl) return;
+    setAnnotationImageDataUrl(dataUrl);
+    setAnnotationIsReply(isReply);
+    setShowAnnotationModal(true);
+  };
+
+  const handleAnnotationSave = (result: { annotatedDataUrl: string; pinX?: number; pinY?: number; pinComment?: string }) => {
+    if (annotationIsReply) {
+      setReplyAttachmentPreview(result.annotatedDataUrl);
+      setReplyAttachmentDataUrl(result.annotatedDataUrl);
+      setReplyAttachment(null);
+      if (result.pinX != null && result.pinY != null) {
+        setReplyPinX(result.pinX);
+        setReplyPinY(result.pinY);
+        setReplyPinComment(result.pinComment || null);
+      } else {
+        setReplyPinX(null);
+        setReplyPinY(null);
+        setReplyPinComment(null);
+      }
+    } else {
+      setCommentAttachmentPreview(result.annotatedDataUrl);
+      setCommentAttachmentDataUrl(result.annotatedDataUrl);
+      setCommentAttachment(null);
+      if (result.pinX != null && result.pinY != null) {
+        setCommentPinX(result.pinX);
+        setCommentPinY(result.pinY);
+        setCommentPinComment(result.pinComment || null);
+      } else {
+        setCommentPinX(null);
+        setCommentPinY(null);
+        setCommentPinComment(null);
+      }
+    }
+    setShowAnnotationModal(false);
+    setAnnotationImageDataUrl(null);
+  };
+
+  const handleAnnotationCancel = () => {
+    setShowAnnotationModal(false);
+    setAnnotationImageDataUrl(null);
   };
 
   const handleAddComment = async (e: React.FormEvent) => {
@@ -268,6 +398,8 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
           content: newComment.trim() || '',
           timestamp_seconds: parseTimestampInput(commentTimestamp),
           attachment_url: attachmentUrl,
+          ...(commentPinX != null && commentPinY != null && { attachment_pin_x: commentPinX, attachment_pin_y: commentPinY }),
+          ...(commentPinComment && { attachment_pin_comment: commentPinComment }),
         }),
       });
       const contentType = response.headers.get('content-type');
@@ -283,6 +415,9 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
       setCommentAttachment(null);
       setCommentAttachmentPreview(null);
       setCommentAttachmentDataUrl(null);
+      setCommentPinX(null);
+      setCommentPinY(null);
+      setCommentPinComment(null);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to add comment');
     } finally {
@@ -292,7 +427,7 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
 
   const handleAddReply = async (e: React.FormEvent, parentId: string) => {
     e.preventDefault();
-    if (!replyContent.trim() && !replyAttachment) return;
+    if (!replyContent.trim() && !replyAttachment && !replyAttachmentDataUrl) return;
     setSubmitting(true);
     try {
       const parentComment = comments.find(c => c.id === parentId);
@@ -300,12 +435,14 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
         ? parseTimestampInput(replyTimestamp)
         : (parentComment?.timestamp_seconds ?? 0);
       let attachmentUrl: string | undefined;
-      if (replyAttachment) {
+      if (replyAttachmentDataUrl) {
+        attachmentUrl = replyAttachmentDataUrl;
+      } else if (replyAttachment) {
         attachmentUrl = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onloadend = () => resolve(reader.result as string);
           reader.onerror = reject;
-          reader.readAsDataURL(replyAttachment);
+          reader.readAsDataURL(replyAttachment!);
         });
       }
       const response = await fetch('/api/comments', {
@@ -317,6 +454,8 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
           timestamp_seconds: timestamp,
           parent_comment_id: parentId,
           attachment_url: attachmentUrl,
+          ...(replyPinX != null && replyPinY != null && { attachment_pin_x: replyPinX, attachment_pin_y: replyPinY }),
+          ...(replyPinComment && { attachment_pin_comment: replyPinComment }),
         }),
       });
       const contentType = response.headers.get('content-type');
@@ -331,11 +470,42 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
       setReplyTimestamp('0:00');
       setReplyAttachment(null);
       setReplyAttachmentPreview(null);
+      setReplyAttachmentDataUrl(null);
+      setReplyPinX(null);
+      setReplyPinY(null);
+      setReplyPinComment(null);
       setReplyingTo(null);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to add reply');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
+
+  const handleDeleteComment = async (commentId: string) => {
+    const confirmed = window.confirm('Delete this feedback? This action cannot be undone.');
+    if (!confirmed) return;
+
+    setDeletingCommentId(commentId);
+    try {
+      const response = await fetch(`/api/comments/${commentId}`, {
+        method: 'DELETE',
+      });
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to delete');
+      } else if (!response.ok) {
+        throw new Error('Failed to delete comment');
+      }
+      // Remove the comment and its replies from state
+      setComments(prev => prev.filter(c => c.id !== commentId && c.parent_comment_id !== commentId));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete comment');
+    } finally {
+      setDeletingCommentId(null);
     }
   };
 
@@ -365,99 +535,167 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
   const rootComments = comments.filter(c => !c.parent_comment_id);
   const getReplies = (parentId: string) => comments.filter(c => c.parent_comment_id === parentId);
 
-  const ReplyThread = ({ reply, depth = 0 }: { reply: Comment; depth?: number }) => {
-    const replies = getReplies(reply.id);
+  // Get all replies for a top-level comment (flattened - no deep nesting)
+  const getAllRepliesFlat = (commentId: string): Comment[] => {
+    const directReplies = getReplies(commentId);
+    const allReplies: Comment[] = [];
+    
+    const collectReplies = (replies: Comment[]) => {
+      for (const reply of replies) {
+        allReplies.push(reply);
+        collectReplies(getReplies(reply.id));
+      }
+    };
+    
+    collectReplies(directReplies);
+    // Sort by creation date
+    return allReplies.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  };
+
+  // Find the parent comment/reply to show "Replying to @user"
+  const getParentComment = (parentId: string): Comment | undefined => {
+    return comments.find(c => c.id === parentId);
+  };
+
+  const renderReply = (reply: Comment, topLevelCommentId: string) => {
     const isReplying = replyingTo === reply.id;
+    const parentComment = getParentComment(reply.parent_comment_id ?? '');
+    // Check if this is a reply to another reply (not to the top-level comment)
+    const isReplyToReply = reply.parent_comment_id !== topLevelCommentId;
+    
     return (
-      <div className={depth > 0 ? 'ml-6' : ''}>
-        <div className="p-3 bg-white rounded-lg border border-black/10">
-          <div className="flex items-start justify-between mb-2">
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 text-xs font-mono font-semibold text-[#061E26] hover:text-black bg-[#061E26]/10 hover:bg-[#061E26]/20 px-2.5 py-1.5 rounded-md transition-colors shadow-sm"
-              title="Jump to timestamp"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="font-bold">{formatTimestamp(reply.timestamp_seconds)}</span>
-            </button>
+      <div key={reply.id} className="p-3 bg-white rounded-lg border border-black/10">
+        {/* Show "Replying to @user" for nested replies */}
+        {isReplyToReply && parentComment && (
+          <div className="flex items-center gap-1.5 mb-2 text-xs text-black/50">
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+            </svg>
+            <span>Replying to</span>
+            <span className="font-medium text-[#061E26]">@{parentComment.user_email?.split('@')[0] ?? 'user'}</span>
           </div>
-          <p className="text-sm text-black leading-relaxed">{reply.content}</p>
-          {reply.attachment_url && (
-            <div className="mt-2">
-              {reply.attachment_url.startsWith('data:image/') ? (
-                <img src={reply.attachment_url} alt="Attachment" className="max-w-full max-h-48 rounded-lg border border-black/10" />
-              ) : reply.attachment_url.startsWith('data:') ? (
-                <a href={reply.attachment_url} download className="inline-flex items-center gap-2 px-3 py-2 text-xs font-medium text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg transition-colors border border-[#061E26]/20">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <span>Download Attachment</span>
-                </a>
-              ) : null}
+        )}
+        <div className="flex items-start justify-between mb-2">
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 text-xs font-mono font-semibold text-[#061E26] hover:text-black bg-[#061E26]/10 hover:bg-[#061E26]/20 px-2.5 py-1.5 rounded-md transition-colors shadow-sm"
+            title="Jump to timestamp"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="font-bold">{formatTimestamp(reply.timestamp_seconds)}</span>
+          </button>
+        </div>
+        <p className="text-sm text-black leading-relaxed">{reply.content}</p>
+        {reply.attachment_url && (
+          <div className="mt-2">
+            {(reply.attachment_url.startsWith('data:image/') || reply.attachment_url.startsWith('http://') || reply.attachment_url.startsWith('https://')) ? (
+              <button
+                type="button"
+                onClick={() => setViewingImage(reply.attachment_url ?? null)}
+                className="inline-block max-w-full cursor-zoom-in hover:opacity-90 transition-opacity"
+                title="Click to view full size"
+              >
+                <img src={reply.attachment_url} alt="Captured frame" className="max-w-full max-h-48 rounded-lg border border-black/10" />
+              </button>
+            ) : reply.attachment_url.startsWith('data:') ? (
+              <a href={reply.attachment_url} download className="inline-flex items-center gap-2 px-3 py-2 text-xs font-medium text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg transition-colors border border-[#061E26]/20">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>Download Attachment</span>
+              </a>
+            ) : null}
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-2 pt-2 border-t border-black/10">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <div className="w-5 h-5 flex-shrink-0 bg-gradient-to-br from-[#BA836B] to-[#061E26] rounded-full flex items-center justify-center text-white text-xs font-bold">
+              {reply.user_email?.charAt(0).toUpperCase() ?? 'U'}
             </div>
-          )}
-          <div className="flex items-center gap-3 mt-2 pt-2 border-t border-black/10">
-            <div className="flex items-center gap-2 flex-1">
-              <div className="w-5 h-5 bg-gradient-to-br from-[#BA836B] to-[#061E26] rounded-full flex items-center justify-center text-white text-xs font-bold">
-                {reply.user_email?.charAt(0).toUpperCase() ?? 'U'}
-              </div>
-              <span className="text-xs text-black/60">{reply.user_email ?? 'Unknown User'}</span>
-              <span className="text-xs text-black/40">-</span>
-              <span className="text-xs text-black/50" title={new Date(reply.created_at).toLocaleString()}>
-                {new Date(reply.created_at).toLocaleDateString()}
-              </span>
-            </div>
+            <span className="text-xs text-black/60 truncate">{reply.user_email ?? 'Unknown User'}</span>
+            <span className="text-xs text-black/40 hidden sm:inline">-</span>
+            <span className="text-xs text-black/50 hidden sm:inline" title={new Date(reply.created_at).toLocaleString()}>
+              {new Date(reply.created_at).toLocaleDateString()}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 sm:gap-3">
             <button
               type="button"
-              onClick={() => { setReplyingTo(isReplying ? null : reply.id); setReplyTimestamp('0:00'); setReplyContent(''); }}
+              onClick={() => {
+                setReplyingTo(isReplying ? null : reply.id);
+                setReplyTimestamp('0:00');
+                setReplyContent('');
+                setReplyAttachment(null);
+                setReplyAttachmentPreview(null);
+                setReplyAttachmentDataUrl(null);
+              }}
               className="text-xs font-medium text-[#061E26] hover:text-black hover:underline"
             >
               {isReplying ? 'Cancel' : 'Reply'}
             </button>
+            {(isAdmin || reply.user_uid === user?.id) && (
+              <button
+                type="button"
+                onClick={() => handleDeleteComment(reply.id)}
+                disabled={deletingCommentId === reply.id}
+                className="text-xs font-medium text-red-500 hover:text-red-700 hover:underline disabled:opacity-50"
+                title="Delete this reply"
+              >
+                {deletingCommentId === reply.id ? 'Deleting...' : 'Delete'}
+              </button>
+            )}
           </div>
-          {isReplying && (
-            <form onSubmit={(e) => handleAddReply(e, reply.id)} className="mt-3 p-3 bg-gradient-to-br from-white to-[#061E26]/5 rounded-lg border border-black/10">
-              <div className="flex items-center gap-2 mb-2">
-                <input
-                  type="text"
-                  placeholder="0:00"
-                  value={replyTimestamp}
-                  onChange={(e) => setReplyTimestamp(e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs font-mono border border-black/20 rounded-md focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent"
-                />
-                <button type="button" onClick={handleReplyCaptureClick} className="px-2 py-1.5 text-xs font-medium text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-md transition-colors" title="Capture current video time">
-                  Capture
-                </button>
-              </div>
-              <textarea
-                placeholder="Write a reply..."
-                value={replyContent}
-                onChange={(e) => setReplyContent(e.target.value)}
-                rows={2}
-                autoFocus
-                className="w-full px-3 py-2 text-sm border border-black/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent resize-none"
-              />
-              <div className="flex gap-2 mt-2">
-                <button type="submit" disabled={submitting || !replyContent.trim()} className="px-3 py-1.5 text-xs font-semibold text-white bg-gradient-to-r from-[#061E26] to-black rounded-md hover:shadow-md disabled:opacity-50 transition-all">
-                  Reply
-                </button>
-                <button type="button" onClick={() => { setReplyingTo(null); setReplyContent(''); setReplyTimestamp('0:00'); }} className="px-3 py-1.5 text-xs font-medium text-black/60 hover:text-black hover:bg-black/5 rounded-md transition-colors">
-                  Cancel
-                </button>
-              </div>
-            </form>
-          )}
-          {replies.length > 0 && (
-            <div className="mt-3 space-y-2">
-              {replies.map((nestedReply) => (
-                <ReplyThread key={nestedReply.id} reply={nestedReply} depth={depth + 1} />
-              ))}
-            </div>
-          )}
         </div>
+        {isReplying && (
+          <form onSubmit={(e) => handleAddReply(e, reply.id)} className="mt-3 p-2 sm:p-3 bg-gradient-to-br from-white to-[#061E26]/5 rounded-lg border border-black/10">
+            {replyAttachmentPreview && (
+              <div className="relative bg-black/5 rounded-lg border border-[#061E26]/20 overflow-hidden mb-3">
+                <div className="flex items-center justify-between px-3 py-2 bg-[#061E26]/10 border-b border-[#061E26]/20">
+                  <span className="text-xs font-semibold text-[#061E26]">Captured frame</span>
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => openAnnotationEditor(true)} className="px-3 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 rounded-lg shadow-sm hover:shadow-md transition-all flex items-center gap-1.5" title="Add pins, lines, arrows, text to this frame">
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                      Annotate
+                    </button>
+                    <button type="button" onClick={() => removeAttachment(true)} className="p-1 text-[#061E26]/60 hover:text-[#061E26] rounded hover:bg-[#061E26]/10 transition-colors">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div className="p-2">
+                  <div className="w-full max-h-32 flex items-center justify-center rounded overflow-hidden bg-black/5">
+                    <img src={replyAttachmentPreview} alt="Captured frame" className="w-full max-h-32 object-contain" />
+                  </div>
+                </div>
+              </div>
+            )}
+            <textarea
+              dir="ltr"
+              placeholder="Write a reply..."
+              value={replyContent}
+              onChange={(e) => setReplyContent(e.target.value)}
+              rows={2}
+              autoFocus
+              className="w-full px-3 py-2 text-sm border border-black/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent resize-none"
+              style={{ direction: 'ltr', textAlign: 'left' }}
+            />
+            <div className="flex gap-2 mt-2">
+              <button type="submit" disabled={submitting || (!replyContent.trim() && !replyAttachment && !replyAttachmentDataUrl)} className="px-3 py-2 sm:py-1.5 text-xs font-semibold text-white bg-gradient-to-r from-[#061E26] to-black rounded-md hover:shadow-md disabled:opacity-50 transition-all">
+                Reply
+              </button>
+              <button type="button" onClick={() => { setReplyingTo(null); setReplyContent(''); setReplyTimestamp('0:00'); setReplyAttachment(null); setReplyAttachmentPreview(null); setReplyAttachmentDataUrl(null); }} className="px-3 py-2 sm:py-1.5 text-xs font-medium text-black/60 hover:text-black hover:bg-black/5 rounded-md transition-colors">
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     );
   };
@@ -523,7 +761,7 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
                   >
                     <option value="pending">Move to Pending</option>
                     <option value="reviewing">Move to In Review</option>
-                    <option value="completed">Move to Completed</option>
+                    <option value="approved">Move to Approved</option>
                   </select>
                   <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -532,7 +770,60 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
                   </div>
                 </div>
               )}
+              {/* Auto-archiving indicator */}
+              {isAutoArchiving && !archiving && (
+                <span className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg">
+                  <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Archiving to Google Drive...
+                </span>
+              )}
+              {/* Retry Archive Button (admin only) */}
+              {canArchive && (
+                <button
+                  onClick={handleArchive}
+                  disabled={archiving}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-300 rounded-lg hover:bg-amber-100 hover:border-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  {archiving ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Archiving...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Retry Archive
+                    </>
+                  )}
+                </button>
+              )}
+              {/* Video Source Badge */}
+              {submission.video_source && (
+                <span className={`text-xs px-2 py-1 rounded-full ${
+                  submission.video_source === 'firebase'
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {submission.video_source === 'firebase' ? 'Temporary Storage' : 'Google Drive'}
+                </span>
+              )}
             </div>
+            {archiveError && (
+              <div className="mt-2 text-sm text-red-600 flex items-center gap-1">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {archiveError}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -540,20 +831,22 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="xl:col-span-2 space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="aspect-video bg-gray-100">
-              <VideoPlayer
+            <div className="bg-gray-100 flex justify-center">
+              <div className="w-full max-w-[360px] aspect-[9/16]">
+                <VideoPlayer
                 embedUrl={submission.embed_url}
                 title={submission.title}
                 onTimestampCapture={handleTimestampCapture}
                 onCaptureRequest={handleCaptureClick}
                 onFrameCapture={handleFrameCapture}
-                autoCaptureOnPause={canPostFeedback}
+                autoCaptureOnPause={false}
               />
+              </div>
             </div>
           </div>
           {canPostFeedback && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className="p-5">
+              <div className="p-3 sm:p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <svg className="w-5 h-5 text-[#061E26]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -564,22 +857,35 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
                   {/* Captured Frame Preview */}
                   {commentAttachmentPreview && (
                     <div className="relative bg-black/5 rounded-lg border border-[#061E26]/20 overflow-hidden">
-                      <div className="flex items-center justify-between px-3 py-2 bg-[#061E26]/10 border-b border-[#061E26]/20">
-                        <div className="flex items-center gap-2">
-                          <svg className="w-4 h-4 text-[#061E26]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-[#061E26]/10 border-b border-[#061E26]/20">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <svg className="w-4 h-4 flex-shrink-0 text-[#061E26]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                           </svg>
                           <span className="text-xs font-semibold text-[#061E26]">Captured Frame</span>
                           <span className="text-xs font-mono text-[#061E26]/70 bg-white/50 px-2 py-0.5 rounded">@ {commentTimestamp}</span>
+                          {commentPinX != null && commentPinY != null && (
+                            <span className="text-xs text-[#061E26]/70">Pin set</span>
+                          )}
                         </div>
-                        <button type="button" onClick={() => removeAttachment(false)} className="p-1 text-[#061E26]/60 hover:text-[#061E26] rounded hover:bg-[#061E26]/10 transition-colors">
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button type="button" onClick={() => openAnnotationEditor(false)} className="px-2 sm:px-3 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 rounded-lg shadow-sm hover:shadow-md transition-all flex items-center gap-1.5" title="Add pins, lines, arrows, text to this frame">
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                            <span className="hidden sm:inline">Annotate</span>
+                          </button>
+                          <button type="button" onClick={() => removeAttachment(false)} className="p-1 text-[#061E26]/60 hover:text-[#061E26] rounded hover:bg-[#061E26]/10 transition-colors">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
                       <div className="p-3">
-                        <img src={commentAttachmentPreview} alt="Captured frame" className="w-full max-h-48 object-contain rounded" />
+                        <div className="w-full max-h-48 flex items-center justify-center rounded overflow-hidden bg-black/5">
+                          <img src={commentAttachmentPreview} alt="Captured frame" className="w-full max-h-48 object-contain" />
+                        </div>
                       </div>
                     </div>
                   )}
@@ -590,7 +896,7 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
                       type="button"
                       onClick={handleCaptureFrameClick}
                       disabled={frameCapturing}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg transition-all border-2 border-dashed border-[#061E26]/30 hover:border-[#061E26]/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3.5 sm:py-3 text-sm font-semibold text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg transition-all border-2 border-dashed border-[#061E26]/30 hover:border-[#061E26]/50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
@@ -619,28 +925,18 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
                   )}
 
                   <textarea
+                    dir="ltr"
                     placeholder="Share your feedback or ask a question..."
                     value={newComment}
                     onChange={(e) => setNewComment(e.target.value)}
                     rows={4}
                     className="w-full px-4 py-3 text-sm border border-black/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent resize-none"
+                    style={{ direction: 'ltr', textAlign: 'left' }}
                   />
-                  {/* Additional file attachment (only show if no captured frame) */}
-                  {!commentAttachmentPreview && (
-                    <label className="block">
-                      <input type="file" onChange={(e) => handleAttachmentChange(e, false)} className="hidden" accept="image/*,video/*,.pdf,.doc,.docx" />
-                      <div className="flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-black/50 hover:text-[#061E26] hover:bg-[#061E26]/5 rounded-lg cursor-pointer transition-colors">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                        </svg>
-                        <span>Or attach a file instead</span>
-                      </div>
-                    </label>
-                  )}
                   <button
                     type="submit"
                     disabled={submitting || (!newComment.trim() && !commentAttachment && !commentAttachmentDataUrl)}
-                    className="w-full px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-[#061E26] to-black rounded-lg hover:shadow-lg hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all shadow-md"
+                    className="w-full px-4 py-3.5 sm:py-3 text-sm font-semibold text-white bg-gradient-to-r from-[#061E26] to-black rounded-lg hover:shadow-lg hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all shadow-md"
                   >
                     {submitting ? (
                       <span className="flex items-center justify-center gap-2">
@@ -659,8 +955,8 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
         </div>
 
         <div className="xl:col-span-1">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden sticky top-6">
-            <div className="p-5">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden xl:sticky xl:top-6">
+            <div className="p-3 sm:p-5">
               <div className="flex items-center gap-2 mb-6">
                 <svg className="w-5 h-5 text-[#061E26]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -668,7 +964,7 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
                 <h2 className="text-lg font-bold text-black">Feedback</h2>
                 <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-bold bg-[#061E26]/10 text-[#061E26] rounded-full">{comments.length}</span>
               </div>
-              <div className="space-y-4 max-h-[1200px] overflow-y-auto pr-1 custom-scrollbar">
+              <div className="space-y-3 sm:space-y-4 max-h-[600px] sm:max-h-[800px] xl:max-h-[1200px] overflow-y-auto pr-1 custom-scrollbar">
                 {rootComments.length === 0 ? (
                   <div className="text-center py-12">
                     <svg className="mx-auto h-12 w-12 text-black/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -679,7 +975,7 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
                   </div>
                 ) : (
                   rootComments.map((comment) => (
-                    <div key={comment.id} className="bg-gradient-to-br from-white to-black/5 rounded-lg p-4 border border-black/10 hover:border-[#061E26]/30 transition-colors">
+                    <div key={comment.id} className="bg-gradient-to-br from-white to-black/5 rounded-lg p-3 sm:p-4 border border-black/10 hover:border-[#061E26]/30 transition-colors">
                       <div className="flex items-start justify-between mb-2">
                         <button
                           type="button"
@@ -696,8 +992,15 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
                       <p className="text-sm text-black leading-relaxed">{comment.content}</p>
                       {comment.attachment_url && (
                         <div className="mt-2">
-                          {comment.attachment_url.startsWith('data:image/') ? (
-                            <img src={comment.attachment_url} alt="Attachment" className="max-w-full max-h-48 rounded-lg border border-black/10" />
+                          {(comment.attachment_url.startsWith('data:image/') || comment.attachment_url.startsWith('http://') || comment.attachment_url.startsWith('https://')) ? (
+                            <button
+                              type="button"
+                              onClick={() => setViewingImage(comment.attachment_url ?? null)}
+                              className="inline-block max-w-full cursor-zoom-in hover:opacity-90 transition-opacity"
+                              title="Click to view full size"
+                            >
+                              <img src={comment.attachment_url} alt="Captured frame" className="max-w-full max-h-48 rounded-lg border border-black/10" />
+                            </button>
                           ) : comment.attachment_url.startsWith('data:') ? (
                             <a href={comment.attachment_url} download className="inline-flex items-center gap-2 px-3 py-2 text-xs font-medium text-[#061E26] bg-[#061E26]/10 hover:bg-[#061E26]/20 rounded-lg transition-colors border border-[#061E26]/20">
                               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -708,42 +1011,57 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
                           ) : null}
                         </div>
                       )}
-                      <div className="flex items-center gap-3 mt-3 pt-3 border-t border-black/10">
-                        <div className="flex items-center gap-2 flex-1">
-                          <div className="w-6 h-6 bg-gradient-to-br from-[#061E26] to-black rounded-full flex items-center justify-center text-white text-xs font-bold">
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-3 pt-3 border-t border-black/10">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <div className="w-6 h-6 flex-shrink-0 bg-gradient-to-br from-[#061E26] to-black rounded-full flex items-center justify-center text-white text-xs font-bold">
                             {comment.user_email?.charAt(0).toUpperCase() ?? 'U'}
                           </div>
-                          <span className="text-xs font-medium text-black/70">{comment.user_email ?? 'Unknown User'}</span>
-                          <span className="text-xs text-black/40">-</span>
-                          <span className="text-xs text-black/50" title={new Date(comment.created_at).toLocaleString()}>
+                          <span className="text-xs font-medium text-black/70 truncate">{comment.user_email ?? 'Unknown User'}</span>
+                          <span className="text-xs text-black/40 hidden sm:inline">-</span>
+                          <span className="text-xs text-black/50 hidden sm:inline" title={new Date(comment.created_at).toLocaleString()}>
                             {new Date(comment.created_at).toLocaleDateString()}
                           </span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setReplyingTo(replyingTo === comment.id ? null : comment.id)}
-                          className="text-xs font-medium text-[#061E26] hover:text-black hover:underline"
-                        >
-                          {replyingTo === comment.id ? 'Cancel' : 'Reply'}
-                        </button>
+                        <div className="flex items-center gap-2 sm:gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setReplyingTo(replyingTo === comment.id ? null : comment.id)}
+                            className="text-xs font-medium text-[#061E26] hover:text-black hover:underline"
+                          >
+                            {replyingTo === comment.id ? 'Cancel' : 'Reply'}
+                          </button>
+                          {(isAdmin || comment.user_uid === user?.id) && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteComment(comment.id)}
+                              disabled={deletingCommentId === comment.id}
+                              className="text-xs font-medium text-red-500 hover:text-red-700 hover:underline disabled:opacity-50"
+                              title="Delete this feedback"
+                            >
+                              {deletingCommentId === comment.id ? 'Deleting...' : 'Delete'}
+                            </button>
+                          )}
+                        </div>
                       </div>
                       {replyingTo === comment.id && (
-                        <form onSubmit={(e) => handleAddReply(e, comment.id)} className="mt-3 p-3 bg-gradient-to-br from-white to-[#061E26]/5 rounded-lg border border-black/10">
-                          <div className="flex items-center gap-2 mb-2">
-                            <input type="text" placeholder="0:00" value={replyTimestamp} onChange={(e) => setReplyTimestamp(e.target.value)} className="w-20 px-2 py-1.5 text-xs font-mono border border-black/20 rounded-md focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent" />
-                            <span className="text-xs text-black/50">Timestamp (optional)</span>
-                          </div>
-                          <textarea placeholder="Write a reply..." value={replyContent} onChange={(e) => setReplyContent(e.target.value)} rows={2} autoFocus className="w-full px-3 py-2 text-sm border border-black/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent resize-none" />
+                        <form onSubmit={(e) => handleAddReply(e, comment.id)} className="mt-3 p-2 sm:p-3 bg-gradient-to-br from-white to-[#061E26]/5 rounded-lg border border-black/10">
+                          {canReview && (
+                            <div className="flex items-center gap-2 mb-2">
+                              <input type="text" placeholder="0:00" value={replyTimestamp} onChange={(e) => setReplyTimestamp(e.target.value)} className="w-20 px-2 py-1.5 text-xs font-mono border border-black/20 rounded-md focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent" />
+                              <span className="text-xs text-black/50">Timestamp (optional)</span>
+                            </div>
+                          )}
+                          <textarea dir="ltr" placeholder="Write a reply..." value={replyContent} onChange={(e) => setReplyContent(e.target.value)} rows={2} autoFocus className="w-full px-3 py-2 text-sm border border-black/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-transparent resize-none" style={{ direction: 'ltr', textAlign: 'left' }} />
                           <div className="flex gap-2 mt-2">
-                            <button type="submit" disabled={submitting || !replyContent.trim()} className="px-3 py-1.5 text-xs font-semibold text-white bg-gradient-to-r from-[#061E26] to-black rounded-md hover:shadow-md disabled:opacity-50 transition-all">Reply</button>
-                            <button type="button" onClick={() => { setReplyingTo(null); setReplyContent(''); setReplyTimestamp('0:00'); }} className="px-3 py-1.5 text-xs font-medium text-black/60 hover:text-black hover:bg-black/5 rounded-md transition-colors">Cancel</button>
+                            <button type="submit" disabled={submitting || !replyContent.trim()} className="px-3 py-2 sm:py-1.5 text-xs font-semibold text-white bg-gradient-to-r from-[#061E26] to-black rounded-md hover:shadow-md disabled:opacity-50 transition-all">Reply</button>
+                            <button type="button" onClick={() => { setReplyingTo(null); setReplyContent(''); setReplyTimestamp('0:00'); }} className="px-3 py-2 sm:py-1.5 text-xs font-medium text-black/60 hover:text-black hover:bg-black/5 rounded-md transition-colors">Cancel</button>
                           </div>
                         </form>
                       )}
-                      {getReplies(comment.id).length > 0 && (
-                        <div className="mt-3 space-y-2">
-                          {getReplies(comment.id).map((reply) => (
-                            <ReplyThread key={reply.id} reply={reply} depth={1} />
+                      {getAllRepliesFlat(comment.id).length > 0 && (
+                        <div className="mt-3 space-y-2 ml-3 sm:ml-6 border-l-2 border-[#061E26]/20 pl-3 sm:pl-4">
+                          {getAllRepliesFlat(comment.id).map((reply) => (
+                            <React.Fragment key={reply.id}>{renderReply(reply, comment.id)}</React.Fragment>
                           ))}
                         </div>
                       )}
@@ -873,6 +1191,53 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showAnnotationModal && annotationImageDataUrl && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={handleAnnotationCancel}>
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-2 border-b border-black/10 flex items-center gap-2">
+              <svg className="w-5 h-5 text-[#061E26]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+              <h3 className="text-lg font-bold text-black">Annotate Frame</h3>
+            </div>
+            <div className="flex-1 min-h-0 overflow-auto p-4">
+              <FrameAnnotationEditor
+                imageDataUrl={annotationImageDataUrl}
+                onSave={handleAnnotationSave}
+                onCancel={handleAnnotationCancel}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Viewer Modal */}
+      {viewingImage && (
+        <div
+          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+          onClick={() => setViewingImage(null)}
+        >
+          <div className="relative max-w-full max-h-full flex items-center justify-center">
+            <button
+              type="button"
+              onClick={() => setViewingImage(null)}
+              className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors z-10"
+              title="Close"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <img
+              src={viewingImage}
+              alt="Full size view"
+              className="max-w-full max-h-[90vh] object-contain rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
           </div>
         </div>
       )}

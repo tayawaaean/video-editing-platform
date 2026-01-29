@@ -81,7 +81,7 @@ export default function ReviewerDashboardPage() {
     total: submissions.length,
     pending: submissions.filter((s) => s.status === 'pending').length,
     reviewing: submissions.filter((s) => s.status === 'reviewing').length,
-    completed: submissions.filter((s) => s.status === 'completed').length,
+    approved: submissions.filter((s) => s.status === 'approved').length,
   };
 
   return (
@@ -126,8 +126,8 @@ export default function ReviewerDashboardPage() {
           )}
         />
         <StatCard
-          label="Completed"
-          value={stats.completed}
+          label="Approved"
+          value={stats.approved}
           tone="dark"
           icon={(
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

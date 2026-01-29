@@ -1,7 +1,7 @@
 // Development mode utilities
 // When NEXT_PUBLIC_DEV_MODE=true or NEXT_ENV=development, bypass real auth and use mock users
 
-import type { User, Submission, Comment } from '@/types';
+import type { User, Comment } from '@/types';
 
 // Check for explicit dev mode flag first, then fall back to environment checks
 export const DEV_MODE = 
@@ -32,43 +32,6 @@ export const DEV_USERS: User[] = [
     email: 'submitter@example.com',
     role: 'submitter',
     created_at: '2024-01-01',
-  },
-];
-
-// Mock submissions for development
-export const DEV_SUBMISSIONS: Submission[] = [
-  {
-    id: 'dev-sub-001',
-    title: 'Product Demo Video v1',
-    description: 'First draft of the product demo for Q1 launch',
-    google_drive_url: 'https://drive.google.com/file/d/example1/view',
-    embed_url: 'https://drive.google.com/file/d/example1/preview',
-    submitter_uid: 'dev-submitter-uid',
-    status: 'pending',
-    created_at: '2024-01-15',
-    updated_at: '2024-01-15',
-  },
-  {
-    id: 'dev-sub-002',
-    title: 'Training Video - Onboarding',
-    description: 'New employee onboarding walkthrough',
-    google_drive_url: 'https://drive.google.com/file/d/example2/view',
-    embed_url: 'https://drive.google.com/file/d/example2/preview',
-    submitter_uid: 'dev-submitter-uid',
-    status: 'reviewing',
-    created_at: '2024-01-10',
-    updated_at: '2024-01-12',
-  },
-  {
-    id: 'dev-sub-003',
-    title: 'Marketing Campaign - Summer',
-    description: 'Summer campaign promotional video',
-    google_drive_url: 'https://drive.google.com/file/d/example3/view',
-    embed_url: 'https://drive.google.com/file/d/example3/preview',
-    submitter_uid: 'dev-submitter-uid',
-    status: 'completed',
-    created_at: '2024-01-05',
-    updated_at: '2024-01-08',
   },
 ];
 
