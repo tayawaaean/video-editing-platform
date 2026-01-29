@@ -44,6 +44,8 @@ export interface SubmissionFields {
   firebase_video_path?: string;
   /** Firebase Storage download URL */
   firebase_video_url?: string;
+  /** Firebase video file size in bytes (for storage quota) */
+  firebase_video_size?: number;
   created_at: string;
   updated_at: string;
 }
@@ -64,6 +66,8 @@ export interface Submission {
   firebase_video_path?: string;
   /** Firebase Storage download URL */
   firebase_video_url?: string;
+  /** Firebase video file size in bytes (for storage quota) */
+  firebase_video_size?: number;
   created_at: string;
   updated_at: string;
 }

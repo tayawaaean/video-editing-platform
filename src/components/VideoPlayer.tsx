@@ -337,39 +337,6 @@ export function VideoPlayer({
         allow="autoplay; encrypted-media"
         allowFullScreen
       />
-      
-      {/* Toggle to try direct mode for Google Drive */}
-      {isGoogleDrive && driveFileId && (
-        <div className="absolute top-2 left-2 flex flex-col gap-2">
-          {directModeError ? (
-            <div className="group relative">
-              <span className="bg-amber-500/90 text-white text-xs px-2 py-1 rounded-full cursor-help flex items-center gap-1">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Use Capture Frame button
-              </span>
-              <div className="absolute left-0 top-full mt-1 w-64 p-2 bg-gray-900 text-white text-xs rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                <p className="font-medium mb-1">Auto-capture not available for this video</p>
-                <p className="text-gray-300">To enable: In Google Drive, share the file as &quot;Anyone with the link&quot; and allow downloading.</p>
-                <p className="text-gray-300 mt-1">For now, use the &quot;Capture Frame&quot; button below the video to take screenshots.</p>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={toggleDirectMode}
-              className="bg-blue-500/90 hover:bg-blue-600/90 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-colors shadow-lg"
-              title="Enable auto-capture on pause (requires publicly shared video with downloads enabled)"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              Enable Auto-Capture
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }

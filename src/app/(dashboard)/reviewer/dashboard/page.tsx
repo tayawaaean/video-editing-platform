@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { StatusBadge, StatCard } from '@/components';
+import { StatusBadge, StatCard, FirebaseStorageUsage } from '@/components';
 import { useDataCache } from '@/contexts/DataCacheContext';
 import type { Submission } from '@/types';
 
@@ -135,6 +135,10 @@ export default function ReviewerDashboardPage() {
             </svg>
           )}
         />
+      </div>
+
+      <div className="mb-10">
+        <FirebaseStorageUsage />
       </div>
 
       <div className="mb-6">

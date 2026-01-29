@@ -188,6 +188,7 @@ function mapRecordToSubmission(record: AirtableRecord<SubmissionFields>): Submis
     video_source: record.fields.video_source || 'google_drive', // Default for legacy records
     firebase_video_path: record.fields.firebase_video_path,
     firebase_video_url: record.fields.firebase_video_url,
+    firebase_video_size: record.fields.firebase_video_size,
     created_at: record.fields.created_at,
     updated_at: record.fields.updated_at,
   };
@@ -232,6 +233,34 @@ export async function getSubmissions(
   const records: AirtableRecord<SubmissionFields>[] = data.records;
   
   return records.map(mapRecordToSubmission);
+}
+
+/**
+ * Returns total bytes of Firebase storage used by submissions still on Firebase.
+ * Used to enforce storage quota before allowing new Firebase uploads.
+ * Requires firebase_video_size (Number) on Submissions table in Airtable.
+ */
+export async function getFirebaseStorageUsed(): Promise<number> {
+  const filterFormula = encodeURIComponent(
+    `AND({video_source}="firebase", LEN({firebase_video_path})>0)`
+  );
+  const url = `${BASE_URL}/${AIRTABLE_TABLE_SUBMISSIONS}?filterByFormula=${filterFormula}&fields[]=firebase_video_size`;
+  const response = await fetchWithRetry(url, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Airtable error: ${JSON.stringify(error)}`);
+  }
+  const data = await response.json();
+  const records: AirtableRecord<SubmissionFields>[] = data.records;
+  let total = 0;
+  for (const record of records) {
+    const size = record.fields.firebase_video_size;
+    if (typeof size === 'number' && size > 0) total += size;
+  }
+  return total;
 }
 
 export async function getSubmissionById(id: string): Promise<Submission | null> {
@@ -284,6 +313,9 @@ export async function createSubmission(
     }
     if (submission.firebase_video_path) {
       fields.firebase_video_path = submission.firebase_video_path;
+    }
+    if (submission.firebase_video_size != null) {
+      fields.firebase_video_size = submission.firebase_video_size;
     }
   }
   

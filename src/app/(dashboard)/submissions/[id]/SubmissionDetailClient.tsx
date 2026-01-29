@@ -50,7 +50,7 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
   const roleLower = user?.role?.toLowerCase();
   const isAdmin = roleLower === 'admin';
   const canReview = roleLower === 'reviewer' || isAdmin;
-  const canPostFeedback = canReview;
+  const canPostFeedback = canReview && submission?.status !== 'approved';
   
   // Check if submission can be archived (admin only, approved status, firebase source)
   const canArchive = isAdmin && 

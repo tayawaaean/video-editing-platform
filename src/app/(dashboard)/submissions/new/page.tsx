@@ -151,6 +151,7 @@ export default function NewSubmissionPage() {
         google_drive_url?: string;
         firebase_video_url?: string;
         firebase_video_path?: string;
+        firebase_video_size?: number;
       };
 
       if (uploadMode === 'google_drive') {
@@ -170,7 +171,7 @@ export default function NewSubmissionPage() {
         };
       } else {
         // Firebase upload mode
-        if (!uploadedVideoUrl || !uploadedVideoPath) {
+        if (!uploadedVideoUrl || !uploadedVideoPath || !selectedFile) {
           setError('Please upload a video first');
           setLoading(false);
           return;
@@ -182,6 +183,7 @@ export default function NewSubmissionPage() {
           video_source: 'firebase',
           firebase_video_url: uploadedVideoUrl,
           firebase_video_path: uploadedVideoPath,
+          firebase_video_size: selectedFile.size,
         };
       }
 

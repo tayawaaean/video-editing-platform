@@ -44,6 +44,7 @@ export const createSubmissionWithFirebaseSchema = z.object({
   video_source: z.literal('firebase'),
   firebase_video_url: z.string().url('Invalid Firebase video URL'),
   firebase_video_path: z.string().min(1, 'Firebase video path is required'),
+  firebase_video_size: z.number().int().min(0, 'File size must be non-negative'),
 });
 
 // Combined schema that accepts either Google Drive or Firebase

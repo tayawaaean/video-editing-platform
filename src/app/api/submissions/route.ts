@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getSubmissions, createSubmission } from '@/lib/airtable';
+import { getSubmissions, createSubmission, getFirebaseStorageUsed } from '@/lib/airtable';
 import { createSubmissionSchema, createSubmissionLegacySchema } from '@/lib/validations';
 import { parseGoogleDriveUrl } from '@/lib/google-drive';
 import type { Submission, VideoSource } from '@/types';
@@ -50,6 +50,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     
     // Try the new schema first, then fall back to legacy
+    const FIREBASE_STORAGE_LIMIT_BYTES = Number(process.env.FIREBASE_STORAGE_LIMIT_BYTES) || 1073741824; // 1GB default
+
     let validatedData: {
       title: string;
       description?: string;
@@ -57,6 +59,7 @@ export async function POST(request: NextRequest) {
       google_drive_url?: string;
       firebase_video_url?: string;
       firebase_video_path?: string;
+      firebase_video_size?: number;
       embed_url: string;
     };
 
@@ -90,13 +93,25 @@ export async function POST(request: NextRequest) {
           embed_url: driveResult.embedUrl!,
         };
       } else {
-        // Firebase upload
+        // Firebase upload - check storage quota
+        const newSize = data.firebase_video_size;
+        const used = await getFirebaseStorageUsed();
+        if (used + newSize > FIREBASE_STORAGE_LIMIT_BYTES) {
+          const limitGB = (FIREBASE_STORAGE_LIMIT_BYTES / (1024 * 1024 * 1024)).toFixed(1);
+          return NextResponse.json(
+            {
+              error: `Firebase storage limit reached (${limitGB} GB). Used: ${(used / (1024 * 1024 * 1024)).toFixed(2)} GB. This upload would exceed the limit.`,
+            },
+            { status: 413 }
+          );
+        }
         validatedData = {
           title: data.title,
           description: data.description,
           video_source: 'firebase',
           firebase_video_url: data.firebase_video_url,
           firebase_video_path: data.firebase_video_path,
+          firebase_video_size: newSize,
           embed_url: data.firebase_video_url, // Use Firebase URL as embed URL
         };
       }
@@ -141,6 +156,7 @@ export async function POST(request: NextRequest) {
         video_source: validatedData.video_source,
         firebase_video_url: validatedData.firebase_video_url,
         firebase_video_path: validatedData.firebase_video_path,
+        firebase_video_size: validatedData.firebase_video_size,
       });
 
       console.log('Submission created successfully in Airtable:', submission.id);

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { StatusBadge, EmptyState, VideoIcon, TableSkeleton, StatCard } from '@/components';
+import { StatusBadge, EmptyState, VideoIcon, TableSkeleton, StatCard, FirebaseStorageUsage } from '@/components';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDataCache } from '@/contexts/DataCacheContext';
 import type { Submission, SubmissionStatus } from '@/types';
@@ -175,6 +175,10 @@ export default function AdminDashboardPage() {
             </svg>
           )}
         />
+      </div>
+
+      <div className="mb-10">
+        <FirebaseStorageUsage />
       </div>
 
       <div className="mb-6">
