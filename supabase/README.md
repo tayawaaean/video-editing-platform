@@ -1,5 +1,47 @@
 # Supabase Setup
 
+## Seeding Users in Both Supabase and Airtable
+
+To create the same users in **both** Supabase and Airtable in one go:
+
+1. Edit `scripts/seed-users-both.ts`: set the `SEED_USERS` array (email, role, optional password).
+2. Ensure `.env.local` has `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `AIRTABLE_API_KEY`, `AIRTABLE_BASE_ID`. Optional: `SEED_DEFAULT_PASSWORD` (default: `ChangeMe123!`).
+3. Run:
+   ```bash
+   npm run seed:users-both
+   ```
+   Or: `npx tsx scripts/seed-users-both.ts`
+
+4. Each user is created/updated in Supabase (for login) and in Airtable (with the same email, role, and Supabase user id). New users get the default password unless you set `password` in `SEED_USERS`.
+
+**Airtable Users table** should have fields: `email`, `role`, `supabase_uid`, `created_at` (names must match).
+
+---
+
+## Syncing Users from Airtable to Supabase
+
+To seed Supabase so users can log in using the same list as Airtable (one-way, Airtable as source):
+
+1. Ensure `.env.local` has:
+   - `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+   - `AIRTABLE_API_KEY`, `AIRTABLE_BASE_ID`
+   - Optional: `SEED_DEFAULT_PASSWORD` (default: `ChangeMe123!`)
+
+2. Run:
+   ```bash
+   npm run seed:supabase-from-airtable
+   ```
+   Or: `npx tsx scripts/seed-supabase-from-airtable.ts`
+
+3. The script:
+   - Fetches all users from the Airtable Users table
+   - Creates missing users in Supabase with the same email and role (and default password)
+   - Updates existing users’ role to match Airtable (password unchanged)
+
+4. New users get the default password; tell them to change it after first login.
+
+---
+
 ## Creating the Users Table
 
 1. Go to your Supabase Dashboard: https://supabase.com/dashboard
