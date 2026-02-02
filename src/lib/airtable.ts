@@ -176,6 +176,84 @@ export async function updateUserRole(recordId: string, role: User['role']): Prom
   };
 }
 
+/**
+ * Delete a user from Airtable by record ID
+ */
+export async function deleteAirtableUser(recordId: string): Promise<void> {
+  const url = `${BASE_URL}/${AIRTABLE_TABLE_USERS}/${recordId}`;
+  
+  const response = await fetchWithRetry(url, {
+    method: 'DELETE',
+    headers: getHeaders(),
+  });
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Airtable error (${response.status}): ${errorText}`);
+  }
+}
+
+/**
+ * Get all submissions by a user (by supabase_uid)
+ */
+export async function getSubmissionsByUser(supabaseUid: string): Promise<Submission[]> {
+  const filterFormula = encodeURIComponent(`{submitter_uid}="${supabaseUid}"`);
+  const url = `${BASE_URL}/${AIRTABLE_TABLE_SUBMISSIONS}?filterByFormula=${filterFormula}`;
+  
+  const response = await fetchWithRetry(url, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Airtable error: ${JSON.stringify(error)}`);
+  }
+  
+  const data = await response.json();
+  const records: AirtableRecord<SubmissionFields>[] = data.records;
+  
+  return records.map(mapRecordToSubmission);
+}
+
+/**
+ * Delete all comments made by a user (across all submissions)
+ */
+export async function deleteCommentsByUser(supabaseUid: string): Promise<void> {
+  const filterFormula = encodeURIComponent(`{user_uid}="${supabaseUid}"`);
+  const url = `${BASE_URL}/${encodeURIComponent(AIRTABLE_TABLE_FEEDBACK)}?filterByFormula=${filterFormula}`;
+  
+  const response = await fetchWithRetry(url, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Airtable error: ${JSON.stringify(error)}`);
+  }
+  
+  const data = await response.json();
+  const records: AirtableRecord<CommentFields>[] = data.records;
+  
+  if (records.length === 0) return;
+  
+  // Airtable batch delete supports up to 10 records per request
+  for (let i = 0; i < records.length; i += 10) {
+    const batch = records.slice(i, i + 10);
+    const params = batch.map(r => `records[]=${r.id}`).join('&');
+    const deleteUrl = `${BASE_URL}/${encodeURIComponent(AIRTABLE_TABLE_FEEDBACK)}?${params}`;
+    const deleteResponse = await fetchWithRetry(deleteUrl, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    });
+    if (!deleteResponse.ok) {
+      const errorText = await deleteResponse.text();
+      throw new Error(`Airtable error (${deleteResponse.status}): ${errorText}`);
+    }
+  }
+}
+
 // ==================== SUBMISSIONS ====================
 
 // Helper function to map Airtable record to Submission object

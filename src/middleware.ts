@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 
-// Public routes that don't require authentication
-const publicRoutes = ['/login', '/api/auth'];
+// Public routes that don't require authentication (reset-password needs token in URL, so must be public)
+const publicRoutes = ['/login', '/reset-password', '/api/auth'];
 
 // Role-based route access
 const roleRoutes: Record<string, string[]> = {

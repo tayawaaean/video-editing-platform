@@ -1,5 +1,23 @@
 # Supabase Setup
 
+## Password Reset Feature
+
+Before using password reset, run this migration to add the required columns:
+
+```bash
+# In Supabase SQL Editor, run:
+# supabase/migrations/004_add_reset_token_columns.sql
+```
+
+Or execute directly:
+```sql
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP WITH TIME ZONE;
+CREATE INDEX IF NOT EXISTS idx_users_reset_token ON users(reset_token);
+```
+
+---
+
 ## Seeding Users in Both Supabase and Airtable
 
 To create the same users in **both** Supabase and Airtable in one go:

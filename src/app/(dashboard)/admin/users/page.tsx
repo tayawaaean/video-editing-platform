@@ -29,6 +29,12 @@ export default function AdminUsersPage() {
   const [newUserRole, setNewUserRole] = useState<UserRole>('submitter');
   const [addingUser, setAddingUser] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [showNewUserPassword, setShowNewUserPassword] = useState(false);
+
+  // Delete user modal
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [deletingUser, setDeletingUser] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fetchUsers = useCallback(async (showLoading = true) => {
     try {
@@ -100,23 +106,30 @@ export default function AdminUsersPage() {
     }
   }, [user, router, fetchUsers, getCache]);
 
-  // Handle Escape key to close modal
+  // Handle Escape key to close modals
   useEffect(() => {
-    if (!showAddForm) return;
+    if (!showAddForm && !userToDelete) return;
 
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setShowAddForm(false);
-        setAddError(null);
-        setNewUserEmail('');
-        setNewUserPassword('');
-        setNewUserRole('submitter');
+        if (showAddForm) {
+          setShowAddForm(false);
+          setAddError(null);
+          setNewUserEmail('');
+          setNewUserPassword('');
+          setNewUserRole('submitter');
+          setShowNewUserPassword(false);
+        }
+        if (userToDelete && !deletingUser) {
+          setUserToDelete(null);
+          setDeleteError(null);
+        }
       }
     };
 
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [showAddForm]);
+  }, [showAddForm, userToDelete, deletingUser]);
 
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
     setUpdatingUserId(userId);
@@ -135,12 +148,9 @@ export default function AdminUsersPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
 
-      setUsers(prev => {
-        const updated = prev.map(u => (u.id === userId ? { ...u, role: newRole } : u));
-        // Update cache with new data
-        setCache('users:admin', updated);
-        return updated;
-      });
+      const updated = users.map(u => (u.id === userId ? { ...u, role: newRole } : u));
+      setUsers(updated);
+      setCache('users:admin', updated);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to update role');
     } finally {
@@ -180,10 +190,44 @@ export default function AdminUsersPage() {
       setNewUserEmail('');
       setNewUserPassword('');
       setNewUserRole('submitter');
+      setShowNewUserPassword(false);
     } catch (err) {
       setAddError(err instanceof Error ? err.message : 'Failed to add user');
     } finally {
       setAddingUser(false);
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!userToDelete) return;
+    
+    setDeletingUser(true);
+    setDeleteError(null);
+
+    try {
+      const response = await fetch(`/api/admin/users/${userToDelete.id}`, {
+        method: 'DELETE',
+      });
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(`Server error: ${text.substring(0, 200)}`);
+      }
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+
+      // Remove user from list
+      const updated = users.filter(u => u.id !== userToDelete.id);
+      setUsers(updated);
+      setCache('users:admin', updated);
+      
+      setUserToDelete(null);
+      setDeleteError(null);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete user');
+    } finally {
+      setDeletingUser(false);
     }
   };
 
@@ -221,6 +265,7 @@ export default function AdminUsersPage() {
             setNewUserEmail('');
             setNewUserPassword('');
             setNewUserRole('submitter');
+            setShowNewUserPassword(false);
           }}
         >
           <div 
@@ -277,16 +322,35 @@ export default function AdminUsersPage() {
                   <label htmlFor="newUserPassword" className="block text-sm font-semibold text-black/80 mb-2">
                     Password <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="password"
-                    id="newUserPassword"
-                    required
-                    value={newUserPassword}
-                    onChange={(e) => setNewUserPassword(e.target.value)}
-                    className="block w-full px-4 py-2.5 border border-black/20 rounded-lg shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-[#061E26] transition-shadow"
-                    placeholder="Minimum 6 characters"
-                    minLength={6}
-                  />
+                  <div className="relative">
+                    <input
+                      type={showNewUserPassword ? "text" : "password"}
+                      id="newUserPassword"
+                      required
+                      value={newUserPassword}
+                      onChange={(e) => setNewUserPassword(e.target.value)}
+                      className="block w-full px-4 py-2.5 pr-10 border border-black/20 rounded-lg shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#061E26] focus:border-[#061E26] transition-shadow"
+                      placeholder="Minimum 6 characters"
+                      minLength={6}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewUserPassword(!showNewUserPassword)}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-black/40 hover:text-black/60"
+                      aria-label={showNewUserPassword ? "Hide password" : "Show password"}
+                    >
+                      {showNewUserPassword ? (
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                          <path d="M3 3l18 18M10.5 10.677a2 2 0 002.823 2.823M7.362 7.561C5.68 8.74 4.279 10.42 3 12c1.889 2.991 5.282 6 9 6 1.55 0 3.043-.523 4.395-1.575M17 17c1.306-1.108 2.292-2.517 3-4-1.889-2.991-5.282-6-9-6-.927 0-1.821.119-2.699.338" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      ) : (
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                          <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2"/>
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                   <p className="mt-2 text-xs text-black/50">
                     Password must be at least 6 characters
                   </p>
@@ -332,6 +396,107 @@ export default function AdminUsersPage() {
               </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation modal */}
+      {userToDelete && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" 
+          onClick={() => {
+            if (!deletingUser) {
+              setUserToDelete(null);
+              setDeleteError(null);
+            }
+          }}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-xl border border-black/10 p-6 w-full max-w-md animate-fade-in" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-4 mb-5">
+              <div className="flex-shrink-0 w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                <svg className="w-6 h-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-black">Delete User</h2>
+                <p className="text-sm text-black/60">This action cannot be undone</p>
+              </div>
+            </div>
+            
+            <div className="bg-black/5 rounded-xl p-4 mb-5">
+              <p className="text-sm text-black/70 mb-2">
+                You are about to delete:
+              </p>
+              <p className="font-semibold text-black">{userToDelete.email}</p>
+              <p className="text-xs text-black/50 mt-1">Role: {userToDelete.role}</p>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5">
+              <div className="flex gap-2">
+                <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <div className="text-sm text-amber-800">
+                  <p className="font-medium mb-1">This will also delete:</p>
+                  <ul className="list-disc list-inside text-amber-700 space-y-0.5">
+                    <li>All submissions by this user</li>
+                    <li>All comments and feedback</li>
+                    <li>All video versions</li>
+                    <li>All associated Firebase files</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {deleteError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-5">
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>{deleteError}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setUserToDelete(null);
+                  setDeleteError(null);
+                }}
+                disabled={deletingUser}
+                className="flex-1 px-4 py-2.5 text-sm font-medium text-black/70 bg-black/5 rounded-xl hover:bg-black/10 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteUser}
+                disabled={deletingUser}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-red-600 rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {deletingUser ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Delete User
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -429,6 +594,17 @@ export default function AdminUsersPage() {
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                           </svg>
+                        )}
+                        {u.id !== user?.id && (
+                          <button
+                            onClick={() => setUserToDelete(u)}
+                            className="p-1.5 text-black/40 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Delete user"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
                         )}
                       </div>
                     </td>
