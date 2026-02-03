@@ -66,6 +66,8 @@ export async function archiveVideoToGoogleDrive(
 
   // Generate filename for Google Drive
   const sanitizedTitle = submission.title.replace(/[^a-zA-Z0-9-_]/g, '_').substring(0, 50);
+  const dateStamp = new Date().toISOString().slice(0, 10);
+  const archiveFolderName = `${sanitizedTitle}_${dateStamp}`.substring(0, 80);
   const extension = metadata.name.split('.').pop() || 'mp4';
   const driveFileName = `${sanitizedTitle}_${submissionId}.${extension}`;
 
@@ -74,7 +76,8 @@ export async function archiveVideoToGoogleDrive(
   const uploadResult = await uploadToGoogleDrive(
     videoBuffer,
     driveFileName,
-    metadata.contentType
+    metadata.contentType,
+    archiveFolderName
   );
 
   if (!uploadResult.success || !uploadResult.embedUrl) {

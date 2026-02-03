@@ -575,6 +575,13 @@ export function SubmissionDetailClient({ submissionId }: SubmissionDetailClientP
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
       setComments(prev => [...prev, data.data]);
+      // Reflect status change to reviewing immediately after first reviewer feedback post-resubmission.
+      setSubmission(prev => {
+        if (prev && prev.status === 'pending') {
+          return { ...prev, status: 'reviewing' };
+        }
+        return prev;
+      });
       setNewComment('');
       setCommentTimestamp('0:00');
       setCommentAttachment(null);

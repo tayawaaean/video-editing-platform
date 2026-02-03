@@ -134,9 +134,10 @@ npm install
 
 1. Create a project at [Firebase Console](https://console.firebase.google.com)
 2. Enable **Storage** and create a default bucket
-3. Go to **Project Settings > General** and copy the web app config values
-4. Go to **Project Settings > Service Accounts** and generate a new private key (for server-side access)
-5. Set CORS on your Firebase Storage bucket using `cors.json`:
+3. Enable **Anonymous** sign-in: **Authentication > Sign-in method > Anonymous > Enable**. The app uses anonymous auth so uploads satisfy Storage rules that require `request.auth != null`.
+4. Go to **Project Settings > General** and copy the web app config values
+5. Go to **Project Settings > Service Accounts** and generate a new private key (for server-side access)
+6. Set CORS on your Firebase Storage bucket using `cors.json`:
    ```json
    [
      {
@@ -147,24 +148,43 @@ npm install
      }
    ]
    ```
+7. Set **Storage security rules** so the app can read uploaded videos (e.g. for playback and for archiving). In [Firebase Console](https://console.firebase.google.com) go to **Storage > Rules** and use rules that allow read for your `videos/` path. For example (read for anyone with the URL; write only when signed in):
+   ```
+   rules_version = '2';
+   service firebase.storage {
+     match /b/{bucket}/o {
+       match /videos/{allPaths=**} {
+         allow read: if true;
+         allow write: if request.auth != null;
+       }
+     }
+   }
+   ```
+   Publish the rules. The app signs in to Firebase anonymously before uploads, so `request.auth != null` is satisfied. If you see 403 on upload, ensure Anonymous sign-in is enabled (step 3) and the rules match the snippet above.
 
 ### 5. Google Drive Setup (Optional - for video archival)
 
+Use either **Service Account** (when allowed) or **OAuth2**. If your organization enforces **iam.disableServiceAccountKeyCreation** (service account key creation is blocked), you must use **OAuth2 only**: do not set `GOOGLE_SERVICE_ACCOUNT_EMAIL` or `GOOGLE_PRIVATE_KEY`; set only `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, and `GOOGLE_DRIVE_FOLDER_ID` (see Option B below).
+
+**Option A – Service Account (only if your org allows creating service account keys)**
+
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select an existing one
-3. Enable the **Google Drive API** under APIs & Services > Library
-4. Create OAuth2 credentials:
-   - Go to **APIs & Services > Credentials > Create Credentials > OAuth client ID**
-   - Application type: **Web application**
-   - Add authorized redirect URI: `http://localhost:3001`
-   - Copy the **Client ID** and **Client Secret**
-5. Run the refresh token script to authorize Drive access:
+2. Create or select a project and enable **Google Drive API** (APIs & Services > Library)
+3. Go to **APIs & Services > Credentials > Create Credentials > Service account**
+4. Create the service account, then open it and go to **Keys > Add key > Create new key > JSON**. Download the JSON.
+5. In the JSON, use `client_email` as `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `private_key` as `GOOGLE_PRIVATE_KEY` in `.env.local`. For the key, keep newlines as `\n` in the env value.
+6. Create a folder in your Google Drive for archived videos. Share that folder with the service account email (e.g. `xxx@xxx.iam.gserviceaccount.com`) and give it **Editor** access. Copy the folder ID from the URL: `https://drive.google.com/drive/folders/{FOLDER_ID}` and set `GOOGLE_DRIVE_FOLDER_ID`.
+
+**Option B – OAuth2 (refresh token)**
+
+1. Same steps 1–2 as above. Then **Create Credentials > OAuth client ID**, type **Web application**, add redirect URI `http://localhost:3001`.
+2. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env.local`, then run:
    ```bash
    npx tsx scripts/get-google-refresh-token.ts
    ```
-   This opens a browser for Google authorization and returns a refresh token.
-6. (Optional) Create a folder in Google Drive to store archived videos and copy its folder ID from the URL:
-   `https://drive.google.com/drive/folders/{FOLDER_ID}`
+   Authorize in the browser and add the printed token as `GOOGLE_REFRESH_TOKEN`.
+3. Set `GOOGLE_DRIVE_FOLDER_ID` from your Drive folder URL (optional; if omitted, files go to Drive root).
+4. To prevent the refresh token from being revoked for inactivity (~6 months), run periodically (e.g. weekly): `npx tsx scripts/touch-google-drive-token.ts`. Schedule it with cron or Task Scheduler if you like.
 
 ### 6. Environment Variables
 
@@ -272,32 +292,45 @@ FIREBASE_STORAGE_LIMIT_BYTES=1073741824
 
 ---
 
-#### Google Drive - OAuth2 (Optional - for video archival)
+#### Google Drive (Optional - for video archival)
+
+Use **one** of the two methods below. If your organization policy blocks service account key creation (`iam.disableServiceAccountKeyCreation`), use **Method 2 (OAuth2)** only and leave Service Account variables unset.
+
+**Method 1 – Service Account (only when your org allows service account keys)**
 
 | Variable | Where to Find It |
 |----------|-----------------|
-| `GOOGLE_CLIENT_ID` | Google Cloud Console > **APIs & Services > Credentials** > your OAuth 2.0 Client > Client ID |
-| `GOOGLE_CLIENT_SECRET` | Same location > Client Secret |
-| `GOOGLE_REFRESH_TOKEN` | Generated by running the included script (see below) |
-| `GOOGLE_DRIVE_FOLDER_ID` | The ID from your Google Drive folder URL: `https://drive.google.com/drive/folders/{THIS_PART}` |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Service account JSON from Cloud Console > Credentials > Service account > Keys > `client_email` |
+| `GOOGLE_PRIVATE_KEY` | Same JSON > `private_key` (use as one line with `\n` for newlines in `.env.local`) |
+| `GOOGLE_DRIVE_FOLDER_ID` | Create a folder in Drive, share it with the service account email (Editor), then use folder ID from URL |
 
 ```env
-GOOGLE_CLIENT_ID=123456789012-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxxxxxxxxxxx
-GOOGLE_REFRESH_TOKEN=1//0xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+GOOGLE_SERVICE_ACCOUNT_EMAIL=xxx@xxx.iam.gserviceaccount.com
+GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 GOOGLE_DRIVE_FOLDER_ID=1AbCdEfGhIjKlMnOpQrStUvWxYz
 ```
 
-> **How to get the refresh token:**
-> 1. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env.local` first
-> 2. Run the helper script:
->    ```bash
->    npx tsx scripts/get-google-refresh-token.ts
->    ```
-> 3. A browser window opens -- sign in and authorize the app
-> 4. The script prints the refresh token to your terminal; copy it into `.env.local`
+**Method 2 – OAuth2 (use this when your org blocks service account keys)**
+
+| Variable | Where to Find It |
+|----------|-----------------|
+| `GOOGLE_CLIENT_ID` | Google Cloud Console > Credentials > OAuth 2.0 Client ID |
+| `GOOGLE_CLIENT_SECRET` | Same > Client Secret |
+| `GOOGLE_REFRESH_TOKEN` | From `npx tsx scripts/get-google-refresh-token.ts` (see below) |
+| `GOOGLE_DRIVE_FOLDER_ID` | Folder ID from `https://drive.google.com/drive/folders/{ID}` (optional) |
+
+```env
+GOOGLE_CLIENT_ID=123456789012-xxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxx
+GOOGLE_REFRESH_TOKEN=1//0xxx
+GOOGLE_DRIVE_FOLDER_ID=1AbCdEfGhIjKlMnOpQrStUvWxYz
+```
+
+> **Refresh token:** Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, then run `npx tsx scripts/get-google-refresh-token.ts`, authorize in the browser, and add the printed token as `GOOGLE_REFRESH_TOKEN`. If no token is returned, revoke the app at [myaccount.google.com/permissions](https://myaccount.google.com/permissions) and run the script again.
 >
-> If you've authorized before and don't get a token, revoke the app at [myaccount.google.com/permissions](https://myaccount.google.com/permissions) and run the script again.
+> **Keeping the refresh token from expiring:** Google may revoke OAuth2 refresh tokens that are unused for about 6 months. To avoid that, run the app's archival flow regularly, or run a keep-alive script on a schedule (e.g. weekly): `npx tsx scripts/touch-google-drive-token.ts`. That script does one minimal Drive API call so the token counts as "used." You can schedule it with cron (Linux/macOS) or Task Scheduler (Windows).
+>
+> **Organization policy:** If your org enforces `iam.disableServiceAccountKeyCreation`, use OAuth2 only. Set `GOOGLE_DRIVE_USE_OAUTH2=true` in `.env.local` to force OAuth2 (even if service account vars are present), then set the four OAuth2 variables above. Alternatively, leave `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_PRIVATE_KEY` unset.
 
 ---
 

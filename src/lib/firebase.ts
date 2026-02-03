@@ -1,6 +1,7 @@
 'use client';
 
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
+import { getAuth, signInAnonymously, Auth } from 'firebase/auth';
 import {
   getStorage,
   ref,
@@ -21,9 +22,9 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// Initialize Firebase app (singleton pattern)
 let app: FirebaseApp | null = null;
 let storage: FirebaseStorage | null = null;
+let auth: Auth | null = null;
 
 function getFirebaseApp(): FirebaseApp | null {
   if (!firebaseConfig.apiKey || !firebaseConfig.storageBucket) {
@@ -51,6 +52,29 @@ export function getFirebaseStorage(): FirebaseStorage | null {
   return storage;
 }
 
+/**
+ * Ensure Firebase Auth has a user (anonymous) so Storage rules allowing request.auth != null pass.
+ * Enable Anonymous sign-in in Firebase Console > Authentication > Sign-in method.
+ */
+async function ensureFirebaseAuth(): Promise<boolean> {
+  const firebaseApp = getFirebaseApp();
+  if (!firebaseApp) return false;
+
+  if (!auth) {
+    auth = getAuth(firebaseApp);
+  }
+
+  if (auth.currentUser) return true;
+
+  try {
+    await signInAnonymously(auth);
+    return true;
+  } catch (error) {
+    console.error('Firebase anonymous sign-in failed:', error);
+    return false;
+  }
+}
+
 export interface UploadProgress {
   bytesTransferred: number;
   totalBytes: number;
@@ -75,8 +99,15 @@ export async function uploadVideoToFirebase(
   file: File,
   onProgress?: (progress: UploadProgress) => void
 ): Promise<UploadResult> {
+  const signedIn = await ensureFirebaseAuth();
+  if (!signedIn) {
+    return {
+      success: false,
+      error: 'Firebase sign-in required for upload. Enable Anonymous sign-in in Firebase Console.',
+    };
+  }
+
   const storageInstance = getFirebaseStorage();
-  
   if (!storageInstance) {
     return {
       success: false,
@@ -84,11 +115,10 @@ export async function uploadVideoToFirebase(
     };
   }
 
-  // Generate unique file path: videos/{timestamp}_{originalFilename}
   const timestamp = Date.now();
   const sanitizedFilename = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
   const filePath = `videos/${timestamp}_${sanitizedFilename}`;
-  
+
   const storageRef = ref(storageInstance, filePath);
   const uploadTask = uploadBytesResumable(storageRef, file);
 
@@ -139,8 +169,13 @@ export async function uploadVideoToFirebase(
  * @returns Promise indicating success or failure
  */
 export async function deleteVideoFromFirebase(filePath: string): Promise<boolean> {
+  const signedIn = await ensureFirebaseAuth();
+  if (!signedIn) {
+    console.error('Firebase sign-in required for delete');
+    return false;
+  }
+
   const storageInstance = getFirebaseStorage();
-  
   if (!storageInstance) {
     console.error('Firebase Storage not configured');
     return false;
