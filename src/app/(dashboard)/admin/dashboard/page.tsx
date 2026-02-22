@@ -138,6 +138,7 @@ export default function AdminDashboardPage() {
           label="Total Submissions"
           value={stats.total}
           tone="primary"
+          onClick={() => { setStatusFilter(''); document.getElementById('admin-submissions')?.scrollIntoView({ behavior: 'smooth' }); }}
           icon={(
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -148,6 +149,7 @@ export default function AdminDashboardPage() {
           label="Pending"
           value={stats.pending}
           tone="accent"
+          onClick={() => { setStatusFilter('pending'); document.getElementById('admin-submissions')?.scrollIntoView({ behavior: 'smooth' }); }}
           icon={(
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -158,6 +160,7 @@ export default function AdminDashboardPage() {
           label="In Review"
           value={stats.reviewing}
           tone="secondary"
+          onClick={() => { setStatusFilter('reviewing'); document.getElementById('admin-submissions')?.scrollIntoView({ behavior: 'smooth' }); }}
           icon={(
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -169,6 +172,7 @@ export default function AdminDashboardPage() {
           label="Approved"
           value={stats.approved}
           tone="dark"
+          onClick={() => { setStatusFilter('approved'); document.getElementById('admin-submissions')?.scrollIntoView({ behavior: 'smooth' }); }}
           icon={(
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -265,7 +269,7 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      <div className="mb-6 mt-8">
+      <div id="admin-submissions" className="mb-6 mt-8 scroll-mt-4">
         <h2 className="text-2xl font-bold text-black">All Submissions</h2>
       </div>
 

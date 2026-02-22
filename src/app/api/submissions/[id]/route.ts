@@ -122,15 +122,26 @@ export async function PATCH(
         submission.firebase_video_path
       ) {
         after(async () => {
-          try {
-            console.log(`[auto-archive] Starting archive for submission ${id}`);
-            const result = await archiveVideoToGoogleDrive(id, '[auto-archive]');
-            if (!result.success) {
-              console.error(`[auto-archive] Failed for submission ${id}: ${result.error}`);
+          const maxRetries = 3;
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+              console.log(`[auto-archive] Attempt ${attempt}/${maxRetries} for submission ${id}`);
+              const result = await archiveVideoToGoogleDrive(id, '[auto-archive]');
+              if (result.success) {
+                console.log(`[auto-archive] Successfully archived submission ${id}`);
+                return;
+              }
+              console.error(`[auto-archive] Attempt ${attempt} failed for submission ${id}: ${result.error}`);
+            } catch (err) {
+              console.error(`[auto-archive] Attempt ${attempt} error for submission ${id}:`, err);
             }
-          } catch (err) {
-            console.error(`[auto-archive] Error for submission ${id}:`, err);
+            if (attempt < maxRetries) {
+              const delay = attempt * 5000; // 5s, 10s
+              console.log(`[auto-archive] Retrying in ${delay / 1000}s...`);
+              await new Promise((resolve) => setTimeout(resolve, delay));
+            }
           }
+          console.error(`[auto-archive] All ${maxRetries} attempts failed for submission ${id}. Use manual retry.`);
         });
       }
 

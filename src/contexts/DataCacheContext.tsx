@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useRef, useCallback, ReactNode, useState } from 'react';
 
 interface CacheEntry<T> {
   data: T;
@@ -19,58 +19,53 @@ const DataCacheContext = createContext<DataCacheContextType | undefined>(undefin
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 export function DataCacheProvider({ children }: { children: ReactNode }) {
-  const [cache, setCacheState] = useState<Map<string, CacheEntry<any>>>(new Map());
+  const cacheRef = useRef<Map<string, CacheEntry<any>>>(new Map());
+  // Counter only used to force re-render when cache is cleared entirely
+  const [, setVersion] = useState(0);
 
   const getCache = useCallback(<T,>(key: string): T | null => {
-    const entry = cache.get(key);
+    const entry = cacheRef.current.get(key);
     if (!entry) return null;
 
     // Check if cache is expired
     const now = Date.now();
     if (now - entry.timestamp > CACHE_DURATION) {
-      cache.delete(key);
+      cacheRef.current.delete(key);
       return null;
     }
 
     return entry.data as T;
-  }, [cache]);
+  }, []);
 
   const setCache = useCallback(<T,>(key: string, data: T) => {
-    setCacheState(prev => {
-      const newCache = new Map(prev);
-      newCache.set(key, {
-        data,
-        timestamp: Date.now(),
-      });
-      return newCache;
+    cacheRef.current.set(key, {
+      data,
+      timestamp: Date.now(),
     });
   }, []);
 
   const clearCache = useCallback((key?: string) => {
     if (key) {
-      setCacheState(prev => {
-        const newCache = new Map(prev);
-        newCache.delete(key);
-        return newCache;
-      });
+      cacheRef.current.delete(key);
     } else {
-      setCacheState(new Map());
+      cacheRef.current = new Map();
+      setVersion(v => v + 1);
     }
   }, []);
 
   const hasCache = useCallback((key: string): boolean => {
-    const entry = cache.get(key);
+    const entry = cacheRef.current.get(key);
     if (!entry) return false;
 
     // Check if cache is expired
     const now = Date.now();
     if (now - entry.timestamp > CACHE_DURATION) {
-      cache.delete(key);
+      cacheRef.current.delete(key);
       return false;
     }
 
     return true;
-  }, [cache]);
+  }, []);
 
   return (
     <DataCacheContext.Provider value={{ getCache, setCache, clearCache, hasCache }}>

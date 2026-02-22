@@ -30,14 +30,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   const fetchUser = useCallback(async () => {
-    if (status === 'loading') return;
-    
-    if (status === 'unauthenticated' || !session?.user) {
-      setUser(null);
-      setLoading(false);
-      return;
-    }
-
     try {
       const response = await fetch('/api/me');
       const contentType = response.headers.get('content-type');
@@ -72,11 +64,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [session, status]);
+  }, []);
 
   useEffect(() => {
+    if (status === 'loading') return;
+
+    if (status === 'unauthenticated' || !session?.user) {
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+
     fetchUser();
-  }, [fetchUser]);
+  }, [status, fetchUser]);
 
   const signOut = async () => {
     try {

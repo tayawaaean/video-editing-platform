@@ -69,11 +69,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const result = await archiveVideoToGoogleDrive(id, '[manual-archive]');
+    // Retry up to 3 times with backoff
+    let result: Awaited<ReturnType<typeof archiveVideoToGoogleDrive>> | null = null;
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      console.log(`[manual-archive] Attempt ${attempt}/${maxRetries} for submission ${id}`);
+      result = await archiveVideoToGoogleDrive(id, '[manual-archive]');
+      if (result.success) break;
+      console.error(`[manual-archive] Attempt ${attempt} failed: ${result.error}`);
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 3000));
+      }
+    }
 
-    if (!result.success) {
+    if (!result || !result.success) {
       return NextResponse.json(
-        { error: result.error || 'Failed to archive submission' },
+        { error: result?.error || 'Failed to archive submission after retries' },
         { status: 500 }
       );
     }

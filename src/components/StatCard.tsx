@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import Link from 'next/link';
 
 export type Tone = 'primary' | 'accent' | 'secondary' | 'dark';
 
@@ -7,11 +8,15 @@ export function StatCard({
   value,
   icon,
   tone = 'primary',
+  href,
+  onClick,
 }: {
   label: string;
   value: ReactNode;
   icon: ReactNode;
   tone?: Tone;
+  href?: string;
+  onClick?: () => void;
 }) {
   const toneMap: Record<Tone, { bg: string; ring: string }> = {
     primary: { bg: 'from-[#061E26] to-black', ring: 'ring-white/40' },
@@ -22,10 +27,8 @@ export function StatCard({
 
   const t = toneMap[tone];
 
-  return (
-    <div
-      className="group relative overflow-hidden rounded-2xl bg-white p-6 border border-black/10 ring-1 ring-black/5 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200"
-    >
+  const content = (
+    <>
       <div className="relative flex items-center justify-between">
         <div>
           <div className="text-sm font-medium text-black/60">{label}</div>
@@ -40,6 +43,30 @@ export function StatCard({
           <div className="pointer-events-none absolute -inset-2 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-b from-transparent to-black/5" />
         </div>
       </div>
+    </>
+  );
+
+  const className = "group relative overflow-hidden rounded-2xl bg-white p-6 border border-black/10 ring-1 ring-black/5 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer block";
+
+  if (href) {
+    return (
+      <Link href={href} className={className}>
+        {content}
+      </Link>
+    );
+  }
+
+  if (onClick) {
+    return (
+      <button onClick={onClick} className={className + ' w-full text-left'}>
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className={className}>
+      {content}
     </div>
   );
 }

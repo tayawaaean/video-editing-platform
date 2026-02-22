@@ -2,13 +2,15 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { StatusBadge, EmptyState, VideoIcon, TableSkeleton } from '@/components';
 import { useDataCache } from '@/contexts/DataCacheContext';
 import type { Submission, SubmissionStatus } from '@/types';
 
 export default function ReviewPage() {
   const { getCache, setCache } = useDataCache();
-  
+  const searchParams = useSearchParams();
+
   const [submissions, setSubmissions] = useState<Submission[]>(() => {
     return getCache<Submission[]>(`submissions:reviewer:all`) || [];
   });
@@ -16,7 +18,10 @@ export default function ReviewPage() {
     return !getCache<Submission[]>(`submissions:reviewer:all`);
   });
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<SubmissionStatus | ''>('');
+  const [statusFilter, setStatusFilter] = useState<SubmissionStatus | ''>(() => {
+    const param = searchParams.get('status');
+    return (param as SubmissionStatus) || '';
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
