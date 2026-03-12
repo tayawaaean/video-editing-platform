@@ -23,37 +23,135 @@ const AIRTABLE_TABLE_VERSIONS = process.env.AIRTABLE_TABLE_VERSIONS || 'Versions
 
 const BASE_URL = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}`;
 
+// ==================== SERVER-SIDE CACHE ====================
+// Prevents redundant Airtable calls when multiple users/pages hit the same endpoint.
+// Only caches GET requests; writes automatically invalidate relevant cache entries.
+
+const CACHE_TTL = 30_000; // 30 seconds
+
+interface CachedResponse {
+  body: string;
+  status: number;
+  timestamp: number;
+}
+
+const responseCache = new Map<string, CachedResponse>();
+const inflightRequests = new Map<string, Promise<Response>>();
+
+function getCacheKey(url: string): string {
+  return url;
+}
+
+function getCachedResponse(key: string): CachedResponse | null {
+  const entry = responseCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CACHE_TTL) {
+    responseCache.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+/** Invalidate cache entries whose URL contains any of the given table names */
+function invalidateCache(...tableNames: string[]) {
+  for (const [key] of responseCache) {
+    if (tableNames.some(t => key.includes(t))) {
+      responseCache.delete(key);
+    }
+  }
+}
+
 // Rate limit handling with exponential backoff
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
   maxRetries = 3
 ): Promise<Response> {
-  let lastError: Error | null = null;
-  
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      const response = await fetch(url, options);
-      
-      // Handle rate limiting (429)
-      if (response.status === 429) {
-        const retryAfter = parseInt(response.headers.get('Retry-After') || '30', 10);
-        const delay = Math.min(retryAfter * 1000, 30000) * Math.pow(2, i);
-        console.log(`Rate limited. Retrying after ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
+  const method = (options.method || 'GET').toUpperCase();
+
+  // For GET requests, check cache first
+  if (method === 'GET') {
+    const cacheKey = getCacheKey(url);
+    const cached = getCachedResponse(cacheKey);
+    if (cached) {
+      return new Response(cached.body, { status: cached.status });
+    }
+
+    // Deduplicate in-flight GET requests for the same URL
+    const inflight = inflightRequests.get(cacheKey);
+    if (inflight) {
+      // Clone-style: wait for the original, then serve from cache
+      await inflight.catch(() => {});
+      const freshCached = getCachedResponse(cacheKey);
+      if (freshCached) {
+        return new Response(freshCached.body, { status: freshCached.status });
       }
-      
-      return response;
-    } catch (error) {
-      lastError = error as Error;
-      const delay = Math.pow(2, i) * 1000;
-      console.log(`Request failed. Retrying after ${delay}ms...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
+      // Cache miss after inflight resolved — fall through to make a new request
     }
   }
-  
-  throw lastError || new Error('Max retries reached');
+
+  const doFetch = async (): Promise<Response> => {
+    let lastError: Error | null = null;
+
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const response = await fetch(url, options);
+
+        // Handle rate limiting (429)
+        if (response.status === 429) {
+          const retryAfter = parseInt(response.headers.get('Retry-After') || '30', 10);
+          const delay = Math.min(retryAfter * 1000, 30000) * Math.pow(2, i);
+          console.log(`Rate limited. Retrying after ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        // Cache successful GET responses
+        if (method === 'GET' && response.ok) {
+          const body = await response.text();
+          responseCache.set(getCacheKey(url), {
+            body,
+            status: response.status,
+            timestamp: Date.now(),
+          });
+          return new Response(body, { status: response.status });
+        }
+
+        // Writes (POST/PATCH/DELETE) invalidate related cache entries
+        if (method !== 'GET') {
+          invalidateCache(
+            AIRTABLE_TABLE_SUBMISSIONS,
+            AIRTABLE_TABLE_FEEDBACK,
+            AIRTABLE_TABLE_VERSIONS,
+            AIRTABLE_TABLE_USERS,
+          );
+        }
+
+        return response;
+      } catch (error) {
+        lastError = error as Error;
+        const delay = Math.pow(2, i) * 1000;
+        console.log(`Request failed. Retrying after ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
+    throw lastError || new Error('Max retries reached');
+  };
+
+  // Track in-flight GET requests for deduplication
+  if (method === 'GET') {
+    const cacheKey = getCacheKey(url);
+    const promise = doFetch();
+    inflightRequests.set(cacheKey, promise);
+    try {
+      return await promise;
+    } finally {
+      inflightRequests.delete(cacheKey);
+    }
+  }
+
+  return doFetch();
 }
 
 function getHeaders() {
