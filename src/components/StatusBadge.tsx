@@ -24,8 +24,13 @@ const statusConfig: Record<SubmissionStatus, { label: string; className: string 
   },
 };
 
+const fallbackConfig = {
+  label: 'Unknown',
+  className: 'bg-black/5 text-black/60 ring-black/10',
+};
+
 export function StatusBadge({ status, size = 'md' }: StatusBadgeProps) {
-  const config = statusConfig[status];
+  const config = statusConfig[status] ?? fallbackConfig;
   const sizeClasses = size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm';
 
   return (

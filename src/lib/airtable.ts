@@ -354,6 +354,14 @@ export async function deleteCommentsByUser(supabaseUid: string): Promise<void> {
 
 // ==================== SUBMISSIONS ====================
 
+const VALID_SUBMISSION_STATUSES = ['pending', 'reviewing', 'approved', 'revision_requested'] as const;
+
+function normalizeStatus(value: unknown): Submission['status'] {
+  return (VALID_SUBMISSION_STATUSES as readonly string[]).includes(value as string)
+    ? (value as Submission['status'])
+    : 'pending';
+}
+
 // Helper function to map Airtable record to Submission object
 function mapRecordToSubmission(record: AirtableRecord<SubmissionFields>): Submission {
   return {
@@ -363,7 +371,7 @@ function mapRecordToSubmission(record: AirtableRecord<SubmissionFields>): Submis
     google_drive_url: record.fields.google_drive_url,
     embed_url: record.fields.embed_url,
     submitter_uid: record.fields.submitter_uid,
-    status: record.fields.status,
+    status: normalizeStatus(record.fields.status),
     video_source: record.fields.video_source || 'google_drive', // Default for legacy records
     firebase_video_path: record.fields.firebase_video_path,
     firebase_video_url: record.fields.firebase_video_url,
